@@ -13,7 +13,7 @@ import {
 	Text,
 	useKumoToastManager,
 } from "@cloudflare/kumo";
-import { DotsThreeVerticalIcon, EnvelopeIcon, PlusIcon, SignOutIcon, TrashIcon } from "@phosphor-icons/react";
+import { EnvelopeIcon, PlusIcon, SignOutIcon, TrashIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
 import { Link as RouterLink } from "react-router";
@@ -33,6 +33,20 @@ export function meta() {
 
 const EMAIL_ROUTING_GUIDE_IMAGE = "/email-route.png";
 const EMAIL_SENDING_GUIDE_IMAGE = "/email-send.png";
+
+function MoreActionsIcon() {
+	return (
+		<svg
+			aria-hidden="true"
+			viewBox="0 0 16 16"
+			className="h-[18px] w-[18px] fill-current"
+		>
+			<circle cx="8" cy="3" r="1.5" />
+			<circle cx="8" cy="8" r="1.5" />
+			<circle cx="8" cy="13" r="1.5" />
+		</svg>
+	);
+}
 
 function AuthForm({ isInitialized }: { isInitialized: boolean }) {
 	const toast = useKumoToastManager();
@@ -177,7 +191,7 @@ export default function HomeRoute() {
 										variant="secondary"
 										size="sm"
 										shape="square"
-										icon={<DotsThreeVerticalIcon size={18} weight="fill" />}
+										icon={<MoreActionsIcon />}
 										aria-label="Open mailbox actions"
 									/>
 								)} />
