@@ -86,7 +86,7 @@ export default function AdminDomainsRoute() {
 				/>
 				<div className="flex gap-2">
 					<Button
-						variant="secondary"
+						variant="primary"
 						onClick={async () => {
 							try {
 								await updateCloudflare.mutateAsync({ apiToken });
@@ -99,19 +99,6 @@ export default function AdminDomainsRoute() {
 					>
 						Save Config
 					</Button>
-					<Button
-						variant="primary"
-						onClick={async () => {
-							try {
-								const result = await syncDomains.mutateAsync();
-								toast.add({ title: result.error ? `Sync completed with warning: ${result.error}` : `Synced ${result.synced} domains` });
-							} catch {
-								toast.add({ title: "Failed to sync domains", variant: "error" });
-							}
-						}}
-					>
-						Sync Now
-					</Button>
 				</div>
 				{cloudflare?.lastSyncAt && (
 					<div className="text-xs text-kumo-subtle">
@@ -119,6 +106,22 @@ export default function AdminDomainsRoute() {
 						{cloudflare.lastSyncError ? ` · ${cloudflare.lastSyncError}` : ""}
 					</div>
 				)}
+			</div>
+
+			<div className="flex justify-end">
+				<Button
+					variant="primary"
+					onClick={async () => {
+						try {
+							const result = await syncDomains.mutateAsync();
+							toast.add({ title: result.error ? `Sync completed with warning: ${result.error}` : `Synced ${result.synced} domains` });
+						} catch {
+							toast.add({ title: "Failed to sync domains", variant: "error" });
+						}
+					}}
+				>
+					Sync Now
+				</Button>
 			</div>
 
 			<div className="rounded-lg border border-kumo-line bg-kumo-base overflow-hidden">

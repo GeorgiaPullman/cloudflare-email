@@ -5,6 +5,7 @@
 import {
 	Button,
 	Dialog,
+	DropdownMenu,
 	Empty,
 	Input,
 	Loader,
@@ -12,7 +13,7 @@ import {
 	Text,
 	useKumoToastManager,
 } from "@cloudflare/kumo";
-import { EnvelopeIcon, PlusIcon, TrashIcon } from "@phosphor-icons/react";
+import { DotsThreeOutlineVerticalIcon, EnvelopeIcon, PlusIcon, SignOutIcon, TrashIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
 import { Link as RouterLink } from "react-router";
@@ -169,7 +170,26 @@ export default function HomeRoute() {
 							>
 								New Mailbox
 							</Button>
-							<Button variant="secondary" size="sm" onClick={() => logout.mutate()}>Sign out</Button>
+							<DropdownMenu>
+								<DropdownMenu.Trigger render={(props, state) => (
+									<Button
+										{...props}
+										variant={state.open ? "secondary" : "ghost"}
+										size="sm"
+										shape="square"
+										icon={<DotsThreeOutlineVerticalIcon size={18} />}
+										aria-label="Open mailbox actions"
+									/>
+								)} />
+								<DropdownMenu.Content align="end">
+									<DropdownMenu.Item
+										icon={<SignOutIcon size={16} />}
+										onClick={() => logout.mutate()}
+									>
+										Sign out
+									</DropdownMenu.Item>
+								</DropdownMenu.Content>
+							</DropdownMenu>
 						</div>
 					</div>
 					{domains.length > 0 ? (
