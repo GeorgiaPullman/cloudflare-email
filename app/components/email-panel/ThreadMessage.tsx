@@ -6,7 +6,6 @@ import { Badge, Button, Tooltip } from "@cloudflare/kumo";
 import {
 	CaretDownIcon,
 	CaretUpIcon,
-	CodeIcon,
 	PaperPlaneTiltIcon,
 	PencilSimpleIcon,
 	TrashIcon,
@@ -35,6 +34,12 @@ interface ThreadMessageProps {
 	onDeleteDraft?: () => void;
 	onViewSource?: () => void;
 	onPreviewImage?: (url: string, filename: string) => void;
+}
+
+function shouldIgnoreToggle() {
+	if (typeof window === "undefined") return false;
+	const selection = window.getSelection();
+	return !!selection && selection.type === "Range" && selection.toString().trim().length > 0;
 }
 
 function Avatar({ isDraft, isSelf, sender }: { isDraft?: boolean; isSelf: boolean; sender: string }) {
@@ -77,8 +82,11 @@ export default function ThreadMessage({
 			<div className={containerClassName}>
 				<button
 					type="button"
-					onClick={onToggleExpand}
-					className="w-full flex items-center gap-3 px-4 py-3 hover:bg-kumo-tint rounded-lg text-left"
+					onClick={() => {
+						if (shouldIgnoreToggle()) return;
+						onToggleExpand();
+					}}
+					className="w-full flex items-center gap-3 px-4 py-3 hover:bg-kumo-tint rounded-lg text-left cursor-pointer"
 				>
 					<Avatar isDraft={isDraft} isSelf={isSelf} sender={email.sender} />
 					<div className="flex-1 min-w-0">
@@ -102,19 +110,27 @@ export default function ThreadMessage({
 
 	return (
 		<div className={`group/thread-msg ${containerClassName}`}>
-			<div className="px-4 py-4 md:px-6">
+			<div
+				className="px-4 py-4 md:px-6 cursor-pointer"
+				role="button"
+				tabIndex={0}
+				onClick={() => {
+					if (shouldIgnoreToggle()) return;
+					onToggleExpand();
+				}}
+				onKeyDown={(event) => {
+					if (event.key === "Enter" || event.key === " ") {
+						event.preventDefault();
+						if (shouldIgnoreToggle()) return;
+						onToggleExpand();
+					}
+				}}
+			>
 				<div className="flex items-center justify-between gap-3 mb-3">
 					<div className="flex items-center gap-2.5 min-w-0">
-						<button
-							type="button"
-							onClick={onToggleExpand}
-							className="shrink-0"
-							aria-label="Collapse message"
-						>
-							<div className="cursor-pointer hover:ring-2 hover:ring-kumo-brand/30 transition-shadow rounded-full">
-								<Avatar isDraft={isDraft} isSelf={isSelf} sender={email.sender} />
-							</div>
-						</button>
+						<div className="shrink-0 hover:ring-2 hover:ring-kumo-brand/30 transition-shadow rounded-full">
+							<Avatar isDraft={isDraft} isSelf={isSelf} sender={email.sender} />
+						</div>
 						<div className="min-w-0">
 							<div className="flex items-center gap-2">
 								<span className="text-sm font-medium text-kumo-default truncate">
@@ -129,34 +145,14 @@ export default function ThreadMessage({
 						<span className="text-xs text-kumo-subtle">
 							{formatShortDate(email.date)}
 						</span>
-						{onViewSource && (
-							<Tooltip content="View source" side="bottom" asChild>
-								<Button
-									variant="ghost"
-									shape="square"
-									size="sm"
-									icon={<CodeIcon size={14} />}
-									onClick={onViewSource}
-									aria-label="View source"
-									className="transition-opacity !h-6 !w-6"
-								/>
-							</Tooltip>
-						)}
-						<button
-							type="button"
-							onClick={onToggleExpand}
-							className="ml-1"
-							aria-label="Collapse message"
-						>
-							<CaretUpIcon
-								size={14}
-								className="text-kumo-subtle hover:text-kumo-default transition-colors"
-							/>
-						</button>
+						<CaretUpIcon
+							size={14}
+							className="text-kumo-subtle hover:text-kumo-default transition-colors ml-1 shrink-0"
+						/>
 					</div>
 				</div>
 
-				<div className="md:ml-[42px]">
+				<div className="md:ml-[42px] cursor-auto" onClick={(event) => event.stopPropagation()}>
 					<EmailIframe
 						body={rewriteInlineImages(
 							email.body || "",
@@ -169,7 +165,7 @@ export default function ThreadMessage({
 				</div>
 
 				{isDraft && (onSendDraft || onEditDraft || onDeleteDraft) && (
-					<div className="flex gap-2 mt-3 md:ml-[42px]">
+					<div className="flex gap-2 mt-3 md:ml-[42px] cursor-auto" onClick={(event) => event.stopPropagation()}>
 						{onSendDraft && (
 							<Button
 								variant="primary"
@@ -212,7 +208,7 @@ export default function ThreadMessage({
 					emailId={email.id}
 					attachments={email.attachments}
 					onPreviewImage={onPreviewImage}
-					className="mt-3 md:ml-[42px]"
+					className="mt-3 md:ml-[42px] cursor-auto"
 				/>
 			</div>
 		</div>

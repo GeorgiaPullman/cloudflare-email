@@ -2,7 +2,18 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
-import type { Email, Folder, Mailbox } from "~/types";
+import type {
+	AdminDomain,
+	AppConfig,
+	AuthUser,
+	CloudflareConfig,
+	Email,
+	Folder,
+	Mailbox,
+	McpApiKey,
+	UserRole,
+	UserStatus,
+} from "~/types";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 
@@ -96,8 +107,42 @@ interface EmailListResponse {
 
 const api = {
 	// Config
-	getConfig: () =>
-		get<{ domains: string[]; emailAddresses: string[] }>("/api/v1/config"),
+	getConfig: () => get<AppConfig>("/api/v1/config"),
+
+	// Auth
+	bootstrapAdmin: (username: string, password: string) =>
+		post<{ user: AuthUser }>("/api/v1/setup/bootstrap-admin", { username, password }),
+	login: (username: string, password: string) =>
+		post<{ user: AuthUser }>("/api/v1/auth/login", { username, password }),
+	logout: () => post<{ ok: boolean }>("/api/v1/auth/logout"),
+	getSession: () => get<{ user: AuthUser }>("/api/v1/auth/session"),
+	changePassword: (currentPassword: string, newPassword: string) =>
+		post<{ ok: boolean }>("/api/v1/auth/change-password", { currentPassword, newPassword }),
+
+	// Admin
+	listUsers: () => get<AuthUser[]>("/api/v1/admin/users"),
+	createUser: (username: string, role: UserRole) =>
+		post<{ user: AuthUser; password: string }>("/api/v1/admin/users", { username, role }),
+	updateUserStatus: (id: string, status: UserStatus) =>
+		post<{ user: AuthUser }>(`/api/v1/admin/users/${id}/status`, { status }),
+	resetUserPassword: (id: string) =>
+		post<{ user: AuthUser; password: string }>(`/api/v1/admin/users/${id}/reset-password`),
+	listDomains: () => get<AdminDomain[]>("/api/v1/admin/domains"),
+	createDomain: (domain: string) => post<{ ok: boolean }>("/api/v1/admin/domains", { domain }),
+	updateDomain: (id: string, status: "active" | "disabled") =>
+		put<{ ok: boolean }>(`/api/v1/admin/domains/${id}`, { status }),
+	deleteDomain: (id: string) => del<{ ok: boolean }>(`/api/v1/admin/domains/${id}`),
+	getCloudflareConfig: () => get<CloudflareConfig>("/api/v1/admin/cloudflare-config"),
+	updateCloudflareConfig: (apiToken: string, zoneIds: string[]) =>
+		put<{ ok: boolean }>("/api/v1/admin/cloudflare-config", { apiToken, zoneIds }),
+	syncDomains: () =>
+		post<{ synced: number; domains: string[]; error: string | null }>("/api/v1/admin/domains/sync"),
+	listMcpKeys: () => get<McpApiKey[]>("/api/v1/admin/mcp-keys"),
+	createMcpKey: (label: string) =>
+		post<{ apiKey: McpApiKey; key: string }>("/api/v1/admin/mcp-keys", { label }),
+	updateMcpKeyStatus: (id: string, status: "active" | "disabled") =>
+		post<{ ok: boolean }>(`/api/v1/admin/mcp-keys/${id}/status`, { status }),
+	deleteMcpKey: (id: string) => del<{ ok: boolean }>(`/api/v1/admin/mcp-keys/${id}`),
 
 	// Mailboxes
 	listMailboxes: () => get<Mailbox[]>("/api/v1/mailboxes"),

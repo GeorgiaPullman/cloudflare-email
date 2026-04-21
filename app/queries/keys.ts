@@ -24,4 +24,13 @@ export const queryKeys = {
 			["search", mailboxId, query, page] as const,
 	},
 	config: ["config"] as const,
+	auth: {
+		session: ["auth", "session"] as const,
+	},
+	admin: {
+		users: ["admin", "users"] as const,
+		domains: ["admin", "domains"] as const,
+		cloudflare: ["admin", "cloudflare"] as const,
+		mcpKeys: ["admin", "mcp-keys"] as const,
+	},
 };

@@ -6,6 +6,7 @@ import { Badge, Button, Input, Loader, useKumoToastManager } from "@cloudflare/k
 import { RobotIcon, ArrowCounterClockwiseIcon } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router";
+import { useChangePassword } from "~/queries/auth";
 import { useMailbox, useUpdateMailbox } from "~/queries/mailboxes";
 
 // Placeholder shown in the textarea when no custom prompt is set.
@@ -17,10 +18,13 @@ export default function SettingsRoute() {
 	const toastManager = useKumoToastManager();
 	const { data: mailbox } = useMailbox(mailboxId);
 	const updateMailboxMutation = useUpdateMailbox();
+	const changePassword = useChangePassword();
 
 	const [displayName, setDisplayName] = useState("");
 	const [agentPrompt, setAgentPrompt] = useState("");
 	const [isSaving, setIsSaving] = useState(false);
+	const [currentPassword, setCurrentPassword] = useState("");
+	const [newPassword, setNewPassword] = useState("");
 
 	useEffect(() => {
 		if (mailbox) {
@@ -52,6 +56,17 @@ export default function SettingsRoute() {
 
 	const handleResetPrompt = () => {
 		setAgentPrompt("");
+	};
+
+	const handleChangePassword = async () => {
+		try {
+			await changePassword.mutateAsync({ currentPassword, newPassword });
+			setCurrentPassword("");
+			setNewPassword("");
+			toastManager.add({ title: "Password updated" });
+		} catch {
+			toastManager.add({ title: "Failed to update password", variant: "error" });
+		}
 	};
 
 	if (!mailbox) {
@@ -124,6 +139,22 @@ export default function SettingsRoute() {
 						The prompt is sent as the system message to the AI model.
 						It controls the agent's personality, writing style, and behavior rules.
 					</p>
+				</div>
+
+				{/* Save */}
+				<div className="rounded-lg border border-kumo-line bg-kumo-base p-5">
+					<div className="text-sm font-medium text-kumo-default mb-4">
+						Password
+					</div>
+					<div className="space-y-3">
+						<Input label="Current Password" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
+						<Input label="New Password" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+						<div className="flex justify-end">
+							<Button variant="secondary" onClick={handleChangePassword} loading={changePassword.isPending}>
+								Update Password
+							</Button>
+						</div>
+					</div>
 				</div>
 
 				{/* Save */}

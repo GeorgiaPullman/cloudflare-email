@@ -14,8 +14,9 @@ import {
 } from "@cloudflare/kumo";
 import { EnvelopeIcon, PlusIcon, TrashIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { Link as RouterLink } from "react-router";
+import { useBootstrapAdmin, useLogin, useLogout, useSession } from "~/queries/auth";
 import api from "~/services/api";
 import {
 	useCreateMailbox,
@@ -25,23 +26,63 @@ import {
 import { queryKeys } from "~/queries/keys";
 
 export function meta() {
-	return [{ title: "Agentic Inbox" }];
+	return [{ title: "Mailflare" }];
+}
+
+function AuthForm({ isInitialized }: { isInitialized: boolean }) {
+	const toast = useKumoToastManager();
+	const login = useLogin();
+	const bootstrap = useBootstrapAdmin();
+	const [username, setUsername] = useState("");
+	const [password, setPassword] = useState("");
+
+	const handleSubmit = async (e: FormEvent) => {
+		e.preventDefault();
+		try {
+			if (isInitialized) {
+				await login.mutateAsync({ username, password });
+			} else {
+				await bootstrap.mutateAsync({ username, password });
+			}
+		} catch (error) {
+			toast.add({ title: error instanceof Error ? error.message : "Authentication failed", variant: "error" });
+		}
+	};
+
+	return (
+		<div className="min-h-screen bg-kumo-recessed flex items-center justify-center px-4">
+			<form onSubmit={handleSubmit} className="w-full max-w-sm rounded-xl border border-kumo-line bg-kumo-base p-6 space-y-4">
+				<div>
+					<h1 className="text-xl font-semibold text-kumo-default">
+						{isInitialized ? "Sign in" : "Create administrator"}
+					</h1>
+					<p className="text-sm text-kumo-subtle mt-1">
+						{isInitialized ? "Use your Mailflare username and password." : "The first account becomes the administrator."}
+					</p>
+				</div>
+				<Input label="Username" value={username} onChange={(e) => setUsername(e.target.value)} required />
+				<Input label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+				<Button type="submit" variant="primary" className="w-full" loading={login.isPending || bootstrap.isPending}>
+					{isInitialized ? "Sign in" : "Initialize"}
+				</Button>
+			</form>
+		</div>
+	);
 }
 
 export default function HomeRoute() {
 	const toastManager = useKumoToastManager();
-	const { data: mailboxes = [], refetch: refetchMailboxes, isFetched: mailboxesFetched } = useMailboxes();
-	const createMailbox = useCreateMailbox();
-	const deleteMailbox = useDeleteMailbox();
-
-	const { data: configData } = useQuery({
+	const { data: configData, isLoading: isConfigLoading } = useQuery({
 		queryKey: queryKeys.config,
 		queryFn: () => api.getConfig(),
-		staleTime: Infinity, // config rarely changes
 	});
+	const { data: session, isLoading: isSessionLoading } = useSession();
+	const { data: mailboxes = [] } = useMailboxes();
+	const createMailbox = useCreateMailbox();
+	const deleteMailbox = useDeleteMailbox();
+	const logout = useLogout();
 
-	const domains = configData?.domains ?? [];
-	const emailAddresses = configData?.emailAddresses ?? [];
+	const domains = configData?.availableDomains ?? [];
 
 	const [isCreateOpen, setIsCreateOpen] = useState(false);
 	const [newPrefix, setNewPrefix] = useState("");
@@ -50,50 +91,26 @@ export default function HomeRoute() {
 	const [isCreating, setIsCreating] = useState(false);
 	const [createError, setCreateError] = useState<string | null>(null);
 	const [isDeleteOpen, setIsDeleteOpen] = useState(false);
-	const [mailboxToDelete, setMailboxToDelete] = useState<{
-		id: string;
-		email: string;
-	} | null>(null);
+	const [mailboxToDelete, setMailboxToDelete] = useState<{ id: string; email: string } | null>(null);
 	const [isDeleting, setIsDeleting] = useState(false);
 
-	// Set default domain when config loads
 	useEffect(() => {
-		if (domains.length > 0 && !selectedDomain) {
-			setSelectedDomain(domains[0]);
-		}
+		if (domains.length > 0 && !selectedDomain) setSelectedDomain(domains[0]);
 	}, [domains, selectedDomain]);
 
-	// Auto-create mailboxes from config (run once when both data sources are ready)
-	const autoCreateDone = useRef(false);
-	useEffect(() => {
-		if (autoCreateDone.current) return;
-		if (emailAddresses.length === 0 || !mailboxesFetched) return;
-		const existingEmails = new Set(
-			mailboxes.map((m) => m.email.toLowerCase()),
-		);
-		const toCreate = emailAddresses.filter(
-			(addr) => !existingEmails.has(addr.toLowerCase()),
-		);
-		if (toCreate.length === 0) {
-			autoCreateDone.current = true;
-			return;
-		}
-		autoCreateDone.current = true;
-		let cancelled = false;
-		Promise.all(
-			toCreate.map((addr) => {
-				const localPart = addr.split("@")[0] || addr;
-				return api.createMailbox(addr, localPart).catch(() => {});
-			}),
-		).then(() => { if (!cancelled) refetchMailboxes(); });
-		return () => { cancelled = true; };
-	}, [emailAddresses, mailboxes, refetchMailboxes]);
+	if (isConfigLoading || isSessionLoading) {
+		return <div className="flex justify-center py-20"><Loader size="lg" /></div>;
+	}
+
+	if (!configData?.isInitialized || !session?.user) {
+		return <AuthForm isInitialized={!!configData?.isInitialized} />;
+	}
 
 	const handleCreate = async (e: FormEvent) => {
 		e.preventDefault();
 		setCreateError(null);
 		if (!newPrefix || !selectedDomain) {
-			setCreateError("Please fill in all fields");
+			setCreateError("Please choose a domain and enter a mailbox prefix");
 			return;
 		}
 		const email = `${newPrefix}@${selectedDomain}`;
@@ -128,47 +145,48 @@ export default function HomeRoute() {
 		}
 	};
 
-	const isConfigured = emailAddresses.length > 0;
-	const accounts = isConfigured
-		? emailAddresses.map((addr) => ({
-				id: addr,
-				email: addr,
-				name: addr.split("@")[0] || addr,
-			}))
-		: mailboxes;
-
-	const isLoading = !configData;
-
 	return (
 		<div className="min-h-screen bg-kumo-recessed">
 			<div className="mx-auto max-w-2xl px-4 py-8 md:px-6 md:py-16">
 				<div className="mb-8">
-					<div className="flex items-center justify-between">
-						<h1 className="text-2xl font-bold text-kumo-default">Mailboxes</h1>
-						{!isConfigured && (
+					<div className="flex items-center justify-between gap-3">
+						<div>
+							<h1 className="text-2xl font-bold text-kumo-default">Mailboxes</h1>
+							<p className="text-sm text-kumo-subtle mt-1">
+								Signed in as {session.user.username}
+							</p>
+						</div>
+						<div className="flex items-center gap-2">
+							{session.user.role === "admin" && (
+								<>
+									<RouterLink to="/admin/users" className="text-sm text-kumo-strong">Users</RouterLink>
+									<RouterLink to="/admin/domains" className="text-sm text-kumo-strong">Domains</RouterLink>
+									<RouterLink to="/admin/mcp-keys" className="text-sm text-kumo-strong">MCP Keys</RouterLink>
+								</>
+							)}
+							<Button variant="secondary" size="sm" onClick={() => logout.mutate()}>Sign out</Button>
 							<Button
 								variant="primary"
 								icon={<PlusIcon size={16} />}
 								onClick={() => setIsCreateOpen(true)}
+								disabled={domains.length === 0}
 							>
 								New Mailbox
 							</Button>
-						)}
+						</div>
 					</div>
-					{domains.length > 0 && (
+					{domains.length > 0 ? (
+						<p className="text-sm text-kumo-subtle mt-1">{domains.join(", ")}</p>
+					) : (
 						<p className="text-sm text-kumo-subtle mt-1">
-							{domains.join(", ")}
+							No active domains yet. Ask an administrator to add one in Domains.
 						</p>
 					)}
 				</div>
 
-				{isLoading ? (
-					<div className="flex justify-center py-20">
-						<Loader size="lg" />
-					</div>
-				) : accounts.length > 0 ? (
+				{mailboxes.length > 0 ? (
 					<div className="rounded-xl border border-kumo-line bg-kumo-base overflow-hidden">
-						{accounts.map((account, idx) => (
+						{mailboxes.map((account, idx) => (
 							<RouterLink
 								key={account.id}
 								to={`/mailbox/${account.id}`}
@@ -187,177 +205,82 @@ export default function HomeRoute() {
 										{account.email}
 									</div>
 								</div>
-								{!isConfigured && (
-									<Button
-										variant="ghost"
-										size="sm"
-										shape="square"
-										icon={<TrashIcon size={16} />}
-										aria-label={`Delete mailbox ${account.email}`}
-										onClick={(e) => {
-											e.preventDefault();
-											e.stopPropagation();
-											setMailboxToDelete({
-												id: account.id,
-												email: account.email,
-											});
-											setIsDeleteOpen(true);
-										}}
-									/>
-								)}
+								<Button
+									variant="ghost"
+									size="sm"
+									shape="square"
+									icon={<TrashIcon size={16} />}
+									aria-label={`Delete mailbox ${account.email}`}
+									onClick={(e) => {
+										e.preventDefault();
+										e.stopPropagation();
+										setMailboxToDelete({ id: account.id, email: account.email });
+										setIsDeleteOpen(true);
+									}}
+								/>
 							</RouterLink>
 						))}
 					</div>
 				) : (
 					<div className="rounded-xl border border-kumo-line bg-kumo-base py-16 px-6">
 						<div className="flex flex-col items-center text-center">
-							<div className="mb-4">
-								<EnvelopeIcon
-									size={48}
-									weight="thin"
-									className="text-kumo-subtle"
-								/>
-							</div>
-							<h3 className="text-base font-semibold text-kumo-default mb-1.5">
-								No mailboxes yet
-							</h3>
+							<EnvelopeIcon size={48} weight="thin" className="text-kumo-subtle mb-4" />
+							<h3 className="text-base font-semibold text-kumo-default mb-1.5">No mailboxes yet</h3>
 							<p className="text-sm text-kumo-subtle max-w-sm mb-5">
-								{isConfigured
-									? "Your email routing is configured but no mailboxes have been created yet. They will appear here automatically."
-									: "Create a mailbox to start sending and receiving emails with your domain."}
+								{domains.length > 0
+									? "Create a mailbox to start sending and receiving emails."
+									: "Add an active domain before creating mailboxes."}
 							</p>
-							{!isConfigured && (
-								<Button
-									variant="primary"
-									icon={<PlusIcon size={16} />}
-									onClick={() => setIsCreateOpen(true)}
-								>
-									Create Mailbox
-								</Button>
-							)}
+							<Button variant="primary" icon={<PlusIcon size={16} />} onClick={() => setIsCreateOpen(true)} disabled={domains.length === 0}>
+								Create Mailbox
+							</Button>
 						</div>
 					</div>
 				)}
 			</div>
 
-			{/* Create Dialog */}
 			<Dialog.Root open={isCreateOpen} onOpenChange={setIsCreateOpen}>
 				<Dialog size="sm" className="p-6">
-					<Dialog.Title className="text-base font-semibold mb-5">
-						Create New Mailbox
-					</Dialog.Title>
+					<Dialog.Title className="text-base font-semibold mb-5">Create New Mailbox</Dialog.Title>
 					<form onSubmit={handleCreate} className="space-y-4">
-						{createError && (
-							<Text variant="error" size="sm">
-								{createError}
-							</Text>
-						)}
+						{createError && <Text variant="error" size="sm">{createError}</Text>}
 						<div>
-							<span className="text-sm font-medium text-kumo-default mb-1.5 block">
-								Email Address
-							</span>
+							<span className="text-sm font-medium text-kumo-default mb-1.5 block">Email Address</span>
 							<div className="flex items-center gap-2">
-								<div className="flex-1">
-									<Input
-										aria-label="Address prefix"
-										placeholder="info"
-										size="sm"
-										value={newPrefix}
-										onChange={(e) => setNewPrefix(e.target.value)}
-										required
-									/>
-								</div>
+								<Input aria-label="Address prefix" placeholder="info" size="sm" value={newPrefix} onChange={(e) => setNewPrefix(e.target.value)} required />
 								<span className="text-sm text-kumo-subtle">@</span>
-								{domains.length > 1 ? (
-									<div className="flex-1">
-							<Select
-								aria-label="Domain"
-								value={selectedDomain}
-								onValueChange={(value) => {
-									if (value) setSelectedDomain(value);
-								}}
-							>
-											{domains.map((d) => (
-												<Select.Option key={d} value={d}>
-													{d}
-												</Select.Option>
-											))}
-										</Select>
-									</div>
-								) : (
-									<span className="text-sm text-kumo-subtle">
-										{selectedDomain || "no domain"}
-									</span>
-								)}
+								<div className="flex-1">
+									<Select aria-label="Domain" value={selectedDomain} onValueChange={(value) => value && setSelectedDomain(value)}>
+										{domains.map((d) => <Select.Option key={d} value={d}>{d}</Select.Option>)}
+									</Select>
+								</div>
 							</div>
 						</div>
-						<Input
-							label="Display Name (optional)"
-							placeholder="Info"
-							size="sm"
-							value={newName}
-							onChange={(e) => setNewName(e.target.value)}
-						/>
+						<Input label="Display Name (optional)" placeholder="Info" size="sm" value={newName} onChange={(e) => setNewName(e.target.value)} />
 						<div className="flex justify-end gap-2 pt-2">
-							<Dialog.Close
-								render={(props) => (
-									<Button {...props} variant="secondary" size="sm">
-										Cancel
-									</Button>
-								)}
-							/>
-							<Button
-								type="submit"
-								variant="primary"
-								size="sm"
-								loading={isCreating}
-								disabled={!selectedDomain}
-							>
-								Create
-							</Button>
+							<Dialog.Close render={(props) => <Button {...props} variant="secondary" size="sm">Cancel</Button>} />
+							<Button type="submit" variant="primary" size="sm" loading={isCreating} disabled={!selectedDomain}>Create</Button>
 						</div>
 					</form>
 				</Dialog>
 			</Dialog.Root>
 
-			{/* Delete Dialog */}
-			<Dialog.Root
-				open={isDeleteOpen}
-				onOpenChange={(open) => {
-					setIsDeleteOpen(open);
-					if (!open) setMailboxToDelete(null);
-				}}
-			>
+			<Dialog.Root open={isDeleteOpen} onOpenChange={(open) => {
+				setIsDeleteOpen(open);
+				if (!open) setMailboxToDelete(null);
+			}}>
 				<Dialog size="sm" className="p-6">
-					<Dialog.Title className="text-base font-semibold mb-2">
-						Delete Mailbox
-					</Dialog.Title>
+					<Dialog.Title className="text-base font-semibold mb-2">Delete Mailbox</Dialog.Title>
 					<Dialog.Description className="text-kumo-subtle text-sm mb-5">
-						Are you sure you want to delete{" "}
-						<strong className="text-kumo-default">
-							{mailboxToDelete?.email}
-						</strong>
-						? This action cannot be undone.
+						Are you sure you want to delete <strong className="text-kumo-default">{mailboxToDelete?.email}</strong>?
 					</Dialog.Description>
 					<div className="flex justify-end gap-2">
-						<Dialog.Close
-							render={(props) => (
-								<Button {...props} variant="secondary" size="sm">
-									Cancel
-								</Button>
-							)}
-						/>
-						<Button
-							variant="destructive"
-							size="sm"
-							loading={isDeleting}
-							onClick={handleDelete}
-						>
-							Delete
-						</Button>
+						<Dialog.Close render={(props) => <Button {...props} variant="secondary" size="sm">Cancel</Button>} />
+						<Button variant="destructive" size="sm" loading={isDeleting} onClick={handleDelete}>Delete</Button>
 					</div>
 				</Dialog>
 			</Dialog.Root>
 		</div>
 	);
 }
+

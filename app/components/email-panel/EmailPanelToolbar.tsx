@@ -9,7 +9,6 @@ import {
 	ArrowBendUpRightIcon,
 	ArrowLeftIcon,
 	ChatCircleIcon,
-	CodeIcon,
 	EnvelopeOpenIcon,
 	EnvelopeSimpleIcon,
 	FolderSimpleIcon,
@@ -96,32 +95,35 @@ export default function EmailPanelToolbar({
 					<Tooltip content="Reply" side="bottom" asChild>
 						<Button
 							variant="ghost"
-							shape="square"
 							size="sm"
 							icon={<ArrowBendUpLeftIcon size={18} />}
 							onClick={onReply}
 							aria-label="Reply"
-						/>
+						>
+							Reply
+						</Button>
 					</Tooltip>
 					<Tooltip content="Reply All" side="bottom" asChild>
 						<Button
 							variant="ghost"
-							shape="square"
 							size="sm"
 							icon={<ChatCircleIcon size={18} />}
 							onClick={onReplyAll}
 							aria-label="Reply All"
-						/>
+						>
+							Reply All
+						</Button>
 					</Tooltip>
 					<Tooltip content="Forward" side="bottom" asChild>
 						<Button
 							variant="ghost"
-							shape="square"
 							size="sm"
 							icon={<ArrowBendUpRightIcon size={18} />}
 							onClick={onForward}
 							aria-label="Forward"
-						/>
+						>
+							Forward
+						</Button>
 					</Tooltip>
 				</>
 			)}
@@ -159,16 +161,6 @@ export default function EmailPanelToolbar({
 			<MoveToFolderMenu folders={moveToFolders} onMove={onMove} />
 
 			<div className="ml-auto flex items-center gap-0.5">
-				<Tooltip content="View source" side="bottom" asChild>
-					<Button
-						variant="ghost"
-						shape="square"
-						size="sm"
-						icon={<CodeIcon size={18} />}
-						onClick={onViewSource}
-						aria-label="View source"
-					/>
-				</Tooltip>
 				<Tooltip content="Delete" side="bottom" asChild>
 					<Button
 						variant="ghost"

@@ -23,6 +23,54 @@ export interface Mailbox {
 	settings?: MailboxSettings;
 }
 
+export type UserRole = "admin" | "employee";
+export type UserStatus = "active" | "disabled";
+
+export interface AuthUser {
+	id: string;
+	username: string;
+	role: UserRole;
+	status: UserStatus;
+	createdAt?: string;
+	updatedAt?: string;
+	lastLoginAt?: string | null;
+}
+
+export interface AppConfig {
+	availableDomains: string[];
+	isInitialized: boolean;
+	authMode: "local";
+	canManageDomains: boolean;
+}
+
+export interface AdminDomain {
+	id: string;
+	domain: string;
+	source: "manual" | "cloudflare_discovered";
+	status: "active" | "disabled";
+	lastSyncedAt: string | null;
+	lastError: string | null;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface CloudflareConfig {
+	hasToken: boolean;
+	zoneIds: string[];
+	lastSyncAt: string | null;
+	lastSyncError: string | null;
+}
+
+export interface McpApiKey {
+	id: string;
+	label: string;
+	keyPrefix: string;
+	status: "active" | "disabled";
+	createdBy: string;
+	createdAt: string;
+	lastUsedAt: string | null;
+}
+
 export interface Email {
 	id: string;
 	thread_id?: string | null;

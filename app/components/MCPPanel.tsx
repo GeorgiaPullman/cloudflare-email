@@ -10,7 +10,7 @@ import {
 	WrenchIcon,
 } from "@phosphor-icons/react";
 import { useState } from "react";
-import { useParams } from "react-router";
+import { Link } from "react-router";
 
 function CopyButton({ text }: { text: string }) {
 	const [copied, setCopied] = useState(false);
@@ -59,7 +59,6 @@ const TOOLS = [
 ];
 
 export default function MCPPanel() {
-	const { mailboxId } = useParams<{ mailboxId: string }>();
 	const baseUrl =
 		typeof window !== "undefined" ? window.location.origin : "https://your-app.workers.dev";
 	const mcpUrl = `${baseUrl}/mcp`;
@@ -91,8 +90,12 @@ export default function MCPPanel() {
 						This email agent exposes an MCP server so AI coding
 						assistants can manage your inbox directly — read emails,
 						search, draft replies, and send messages using natural
-						language.
+						language. Use an MCP API key from the admin panel as a
+						Bearer token when connecting.
 					</p>
+					<Link to="/admin/mcp-keys" className="text-xs text-kumo-brand">
+						Manage MCP keys
+					</Link>
 				</div>
 
 				{/* MCP URL */}

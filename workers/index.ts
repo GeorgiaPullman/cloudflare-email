@@ -7,6 +7,15 @@ import { cors } from "hono/cors";
 import PostalMime from "postal-mime";
 import { z } from "zod";
 import { sendEmail } from "./email-sender";
+import {
+	adminHeaders,
+	clearSessionCookie,
+	getAdminStub,
+	getSessionId,
+	requireAdmin,
+	requireAuth,
+	sessionCookie,
+} from "./lib/auth";
 import { storeAttachments, type StoredAttachment } from "./lib/attachments";
 import {
 	validateSender,
@@ -18,7 +27,7 @@ import {
 import { SendEmailRequestSchema } from "./lib/schemas";
 import { handleReplyEmail, handleForwardEmail } from "./routes/reply-forward";
 import { Folders } from "../shared/folders";
-import type { Env } from "./types";
+import type { AppConfigResponse, Env } from "./types";
 import { requireMailbox, type MailboxContext } from "./lib/mailbox";
 
 type AppContext = Context<MailboxContext>;
@@ -81,15 +90,223 @@ app.use("/api/*", cors({
 		return undefined;
 	},
 }));
+app.use("/api/v1/mailboxes", requireAuth);
+app.use("/api/v1/mailboxes/*", requireAuth);
+app.use("/api/v1/mailboxes/:mailboxId", requireMailbox);
 app.use("/api/v1/mailboxes/:mailboxId/*", requireMailbox);
 
 // -- Config ---------------------------------------------------------
 
-app.get("/api/v1/config", (c) => {
-	const domainsRaw = c.env.DOMAINS || "";
-	const domains = domainsRaw.split(",").map((d) => d.trim()).filter(Boolean);
-	const emailAddresses = c.env.EMAIL_ADDRESSES ?? [];
-	return c.json({ domains, emailAddresses });
+async function getConfig(env: Env, userId?: string) {
+	const headers = userId ? adminHeaders({ id: userId, username: "", role: "admin", status: "active" }) : { "Content-Type": "application/json" };
+	const response = await getAdminStub(env).fetch("https://app/config", {
+		method: "GET",
+		headers,
+	});
+	return response.json() as Promise<AppConfigResponse>;
+}
+
+app.get("/api/v1/config", async (c) => {
+	const sessionId = getSessionId(c);
+	const user = sessionId ? await (async () => {
+		const res = await getAdminStub(c.env).fetch("https://app/session", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ sessionId }),
+		});
+		if (!res.ok) return null;
+		const data = await res.json() as { user?: { id: string } | null };
+		return data.user ?? null;
+	})() : null;
+	const status = await getAdminStub(c.env).fetch("https://app/status");
+	const statusJson = await status.json() as { isInitialized: boolean; availableDomains: string[] };
+	if (!user) {
+		return c.json({
+			availableDomains: statusJson.availableDomains,
+			isInitialized: statusJson.isInitialized,
+			authMode: "local",
+			canManageDomains: false,
+		});
+	}
+	return c.json(await getConfig(c.env, user.id));
+});
+
+// -- Setup / Auth ---------------------------------------------------
+
+app.post("/api/v1/setup/bootstrap-admin", async (c) => {
+	const response = await getAdminStub(c.env).fetch("https://app/bootstrap-admin", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(await c.req.json()),
+	});
+	const payload = await response.json() as { error?: string; session?: { id: string; expiresAt: string }; user?: unknown };
+	if (!response.ok) return c.json(payload, response.status as 400 | 401 | 403 | 409);
+	c.header("Set-Cookie", sessionCookie(payload.session!.id, payload.session!.expiresAt, !import.meta.env.DEV));
+	return c.json({ user: payload.user }, 201);
+});
+
+app.post("/api/v1/auth/login", async (c) => {
+	const response = await getAdminStub(c.env).fetch("https://app/login", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(await c.req.json()),
+	});
+	const payload = await response.json() as { error?: string; session?: { id: string; expiresAt: string }; user?: unknown };
+	if (!response.ok) return c.json(payload, response.status as 400 | 401 | 403);
+	c.header("Set-Cookie", sessionCookie(payload.session!.id, payload.session!.expiresAt, !import.meta.env.DEV));
+	return c.json({ user: payload.user });
+});
+
+app.post("/api/v1/auth/logout", async (c) => {
+	const sessionId = getSessionId(c);
+	await getAdminStub(c.env).fetch("https://app/logout", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ sessionId }),
+	});
+	c.header("Set-Cookie", clearSessionCookie(!import.meta.env.DEV));
+	return c.json({ ok: true });
+});
+
+app.get("/api/v1/auth/session", requireAuth, async (c) => {
+	return c.json({ user: c.var.user });
+});
+
+app.post("/api/v1/auth/change-password", requireAuth, async (c) => {
+	const response = await getAdminStub(c.env).fetch("https://app/change-password", {
+		method: "POST",
+		headers: adminHeaders(c.var.user),
+		body: JSON.stringify({ ...(await c.req.json()), userId: c.var.user.id }),
+	});
+	const payload = await response.json();
+	return c.json(payload, response.status as 200 | 400 | 403);
+});
+
+// -- Admin ----------------------------------------------------------
+
+app.get("/api/v1/admin/users", requireAuth, requireAdmin, async (c) => {
+	const response = await getAdminStub(c.env).fetch("https://app/users", {
+		headers: adminHeaders(c.var.user),
+	});
+	return c.json(await response.json(), response.status as 200 | 403);
+});
+
+app.post("/api/v1/admin/users", requireAuth, requireAdmin, async (c) => {
+	const response = await getAdminStub(c.env).fetch("https://app/users", {
+		method: "POST",
+		headers: adminHeaders(c.var.user),
+		body: JSON.stringify(await c.req.json()),
+	});
+	return c.json(await response.json(), response.status as 201 | 400 | 403 | 409);
+});
+
+app.post("/api/v1/admin/users/:id/status", requireAuth, requireAdmin, async (c) => {
+	const response = await getAdminStub(c.env).fetch(`https://app/users/${c.req.param("id")}/status`, {
+		method: "POST",
+		headers: adminHeaders(c.var.user),
+		body: JSON.stringify(await c.req.json()),
+	});
+	return c.json(await response.json(), response.status as 200 | 400 | 403);
+});
+
+app.post("/api/v1/admin/users/:id/reset-password", requireAuth, requireAdmin, async (c) => {
+	const response = await getAdminStub(c.env).fetch(`https://app/users/${c.req.param("id")}/reset-password`, {
+		method: "POST",
+		headers: adminHeaders(c.var.user),
+		body: JSON.stringify({}),
+	});
+	return c.json(await response.json(), response.status as 200 | 403 | 404);
+});
+
+app.get("/api/v1/admin/domains", requireAuth, requireAdmin, async (c) => {
+	const response = await getAdminStub(c.env).fetch("https://app/domains", {
+		headers: adminHeaders(c.var.user),
+	});
+	return c.json(await response.json(), response.status as 200 | 403);
+});
+
+app.post("/api/v1/admin/domains", requireAuth, requireAdmin, async (c) => {
+	const response = await getAdminStub(c.env).fetch("https://app/domains", {
+		method: "POST",
+		headers: adminHeaders(c.var.user),
+		body: JSON.stringify(await c.req.json()),
+	});
+	return c.json(await response.json(), response.status as 201 | 400 | 403);
+});
+
+app.put("/api/v1/admin/domains/:id", requireAuth, requireAdmin, async (c) => {
+	const response = await getAdminStub(c.env).fetch(`https://app/domains/${c.req.param("id")}`, {
+		method: "PUT",
+		headers: adminHeaders(c.var.user),
+		body: JSON.stringify(await c.req.json()),
+	});
+	return c.json(await response.json(), response.status as 200 | 400 | 403);
+});
+
+app.delete("/api/v1/admin/domains/:id", requireAuth, requireAdmin, async (c) => {
+	const response = await getAdminStub(c.env).fetch(`https://app/domains/${c.req.param("id")}`, {
+		method: "DELETE",
+		headers: adminHeaders(c.var.user),
+	});
+	return c.json(await response.json(), response.status as 200 | 403);
+});
+
+app.get("/api/v1/admin/cloudflare-config", requireAuth, requireAdmin, async (c) => {
+	const response = await getAdminStub(c.env).fetch("https://app/cloudflare-config", {
+		headers: adminHeaders(c.var.user),
+	});
+	return c.json(await response.json(), response.status as 200 | 403);
+});
+
+app.put("/api/v1/admin/cloudflare-config", requireAuth, requireAdmin, async (c) => {
+	const response = await getAdminStub(c.env).fetch("https://app/cloudflare-config", {
+		method: "PUT",
+		headers: adminHeaders(c.var.user),
+		body: JSON.stringify(await c.req.json()),
+	});
+	return c.json(await response.json(), response.status as 200 | 403);
+});
+
+app.post("/api/v1/admin/domains/sync", requireAuth, requireAdmin, async (c) => {
+	const response = await getAdminStub(c.env).fetch("https://app/domains/sync", {
+		method: "POST",
+		headers: adminHeaders(c.var.user),
+		body: JSON.stringify({}),
+	});
+	return c.json(await response.json(), response.status as 200 | 403);
+});
+
+app.get("/api/v1/admin/mcp-keys", requireAuth, requireAdmin, async (c) => {
+	const response = await getAdminStub(c.env).fetch("https://app/mcp-keys", {
+		headers: adminHeaders(c.var.user),
+	});
+	return c.json(await response.json(), response.status as 200 | 403);
+});
+
+app.post("/api/v1/admin/mcp-keys", requireAuth, requireAdmin, async (c) => {
+	const response = await getAdminStub(c.env).fetch("https://app/mcp-keys", {
+		method: "POST",
+		headers: adminHeaders(c.var.user),
+		body: JSON.stringify(await c.req.json()),
+	});
+	return c.json(await response.json(), response.status as 201 | 403);
+});
+
+app.post("/api/v1/admin/mcp-keys/:id/status", requireAuth, requireAdmin, async (c) => {
+	const response = await getAdminStub(c.env).fetch(`https://app/mcp-keys/${c.req.param("id")}/status`, {
+		method: "POST",
+		headers: adminHeaders(c.var.user),
+		body: JSON.stringify(await c.req.json()),
+	});
+	return c.json(await response.json(), response.status as 200 | 400 | 403);
+});
+
+app.delete("/api/v1/admin/mcp-keys/:id", requireAuth, requireAdmin, async (c) => {
+	const response = await getAdminStub(c.env).fetch(`https://app/mcp-keys/${c.req.param("id")}`, {
+		method: "DELETE",
+		headers: adminHeaders(c.var.user),
+	});
+	return c.json(await response.json(), response.status as 200 | 403);
 });
 
 // -- Mailboxes ------------------------------------------------------
@@ -102,9 +319,11 @@ app.get("/api/v1/mailboxes", async (c) => {
 app.post("/api/v1/mailboxes", async (c) => {
 	const { name, settings, email: rawEmail } = CreateMailboxBody.parse(await c.req.json());
 	const email = rawEmail.toLowerCase();
-	const allowedAddresses = (c.env.EMAIL_ADDRESSES ?? []) as string[];
-	if (allowedAddresses.length > 0 && !allowedAddresses.map((a) => a.toLowerCase()).includes(email)) {
-		return c.json({ error: "Mailbox creation is restricted to configured EMAIL_ADDRESSES" }, 403);
+	const config = await getConfig(c.env, c.var.user.id);
+	const allowedDomains = new Set(config.availableDomains.map((d) => d.toLowerCase()));
+	const emailDomain = email.split("@")[1] || "";
+	if (!allowedDomains.has(emailDomain)) {
+		return c.json({ error: "Mailbox domain is not in the active domain list" }, 403);
 	}
 	const key = `mailboxes/${email}.json`;
 	if (await c.env.BUCKET.head(key)) return c.json({ error: "Mailbox already exists" }, 409);
@@ -176,6 +395,10 @@ app.post("/api/v1/mailboxes/:mailboxId/emails", async (c: AppContext) => {
 	} catch (e) {
 		if (e instanceof SenderValidationError) return c.json({ error: e.message }, 400);
 		throw e;
+	}
+	const config = await getConfig(c.env, c.var.user.id);
+	if (!config.availableDomains.includes(fromDomain)) {
+		return c.json({ error: "Sender domain is not configured as active" }, 403);
 	}
 
 	const { messageId, outgoingMessageId } = generateMessageId(fromDomain);
@@ -351,16 +574,12 @@ async function receiveEmail(event: { raw: ReadableStream; rawSize: number }, env
 
 	if (!parsedEmail.to?.length || !parsedEmail.to[0].address) throw new Error("received email with empty to");
 
-	const allowedAddresses = ((env.EMAIL_ADDRESSES ?? []) as string[]).map((a) => a.toLowerCase());
 	const allRecipients = parsedEmail.to.map((t) => t.address?.toLowerCase()).filter(Boolean) as string[];
 	const ccRecipients = (parsedEmail.cc || []).map((e) => e.address?.toLowerCase()).filter(Boolean) as string[];
 	const bccRecipients = (parsedEmail.bcc || []).map((e) => e.address?.toLowerCase()).filter(Boolean) as string[];
 
 	let mailboxId: string | undefined;
-	if (allowedAddresses.length > 0) {
-		mailboxId = allRecipients.find((addr) => allowedAddresses.includes(addr));
-		if (!mailboxId) { console.log(`Ignoring email: no recipient matches EMAIL_ADDRESSES.`); return; }
-	} else { mailboxId = allRecipients[0]; }
+	mailboxId = allRecipients[0];
 	if (!mailboxId) throw new Error("received email with no valid recipient address");
 
 	const messageId = crypto.randomUUID();
