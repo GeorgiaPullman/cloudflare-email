@@ -14,11 +14,11 @@ export function AdminTabs({ showHomeLink = false }: { showHomeLink?: boolean }) 
 	const location = useLocation();
 
 	return (
-		<div className="space-y-4">
+		<div className={showHomeLink ? "flex flex-wrap items-center gap-6" : "space-y-4"}>
 			{showHomeLink && (
 				<RouterLink
 					to="/"
-					className="inline-flex items-center text-sm font-medium text-kumo-subtle no-underline transition-colors hover:text-kumo-default"
+					className="inline-flex items-center whitespace-nowrap text-sm font-medium text-kumo-subtle no-underline transition-colors hover:text-kumo-default"
 				>
 					← Back to Home
 				</RouterLink>

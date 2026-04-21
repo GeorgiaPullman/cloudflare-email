@@ -75,7 +75,7 @@ export default function AdminDomainsRoute() {
 				<div className="text-sm font-medium text-kumo-default">Cloudflare discovery</div>
 				<Input
 					label="API Token"
-					type="password"
+					type="text"
 					name="cloudflare-api-token"
 					autoComplete="off"
 					autoCorrect="off"
