@@ -23,7 +23,7 @@ export function AdminTabs({ showHomeLink = false }: { showHomeLink?: boolean }) 
 					← Back to Home
 				</RouterLink>
 			)}
-			<nav className="inline-flex max-w-full overflow-hidden rounded-full border border-kumo-line bg-kumo-base p-1 shadow-sm" aria-label="Admin sections">
+			<nav className="inline-flex max-w-full gap-2 overflow-hidden rounded-full border border-kumo-line bg-kumo-base p-1 shadow-sm" aria-label="Admin sections">
 				{tabs.map((tab) => {
 					const isActive = location.pathname === tab.to;
 					return (

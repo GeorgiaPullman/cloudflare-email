@@ -133,8 +133,8 @@ const api = {
 		put<{ ok: boolean }>(`/api/v1/admin/domains/${id}`, { status }),
 	deleteDomain: (id: string) => del<{ ok: boolean }>(`/api/v1/admin/domains/${id}`),
 	getCloudflareConfig: () => get<CloudflareConfig>("/api/v1/admin/cloudflare-config"),
-	updateCloudflareConfig: (apiToken: string, zoneIds: string[]) =>
-		put<{ ok: boolean }>("/api/v1/admin/cloudflare-config", { apiToken, zoneIds }),
+	updateCloudflareConfig: (apiToken: string) =>
+		put<{ ok: boolean }>("/api/v1/admin/cloudflare-config", { apiToken }),
 	syncDomains: () =>
 		post<{ synced: number; domains: string[]; error: string | null }>("/api/v1/admin/domains/sync"),
 	listMcpKeys: () => get<McpApiKey[]>("/api/v1/admin/mcp-keys"),

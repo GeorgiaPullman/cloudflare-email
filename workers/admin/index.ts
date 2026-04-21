@@ -296,10 +296,34 @@ export class AppAdminDO extends DurableObject<Env> {
 
 	private async syncCloudflareDomains() {
 		const token = this.getSetting("cloudflare_api_token");
-		const zoneIdsRaw = this.getSetting("cloudflare_zone_ids");
-		const zoneIds = zoneIdsRaw ? JSON.parse(zoneIdsRaw) as string[] : [];
-		if (!token || zoneIds.length === 0) {
-			return { synced: 0, domains: [], error: "Cloudflare API token and zone IDs are required." };
+		if (!token) {
+			return { synced: 0, domains: [], error: "Cloudflare API token is required." };
+		}
+
+		const zonesResponse = await fetch("https://api.cloudflare.com/client/v4/zones", {
+			headers: { Authorization: `Bearer ${token}` },
+		});
+		const zonesPayload = await zonesResponse.json() as {
+			success?: boolean;
+			result?: { id?: string }[];
+			errors?: { message?: string }[];
+		};
+		if (!zonesResponse.ok || zonesPayload.success === false) {
+			const error = zonesPayload.errors?.map((entry) => entry.message).filter(Boolean).join("; ")
+				|| "Cloudflare API failed while listing zones";
+			this.setSetting("cloudflare_last_sync_at", new Date().toISOString());
+			this.setSetting("cloudflare_last_sync_error", error);
+			return { synced: 0, domains: [], error };
+		}
+
+		const zoneIds = (zonesPayload.result ?? [])
+			.map((zone) => String(zone.id || "").trim())
+			.filter(Boolean);
+		if (zoneIds.length === 0) {
+			const error = "No accessible Cloudflare zones were found for this API token.";
+			this.setSetting("cloudflare_last_sync_at", new Date().toISOString());
+			this.setSetting("cloudflare_last_sync_error", error);
+			return { synced: 0, domains: [], error };
 		}
 
 		const discovered = new Set<string>();
@@ -526,20 +550,16 @@ export class AppAdminDO extends DurableObject<Env> {
 
 		if (url.pathname === "/cloudflare-config" && method === "GET") {
 			if (actor.role !== "admin") return json({ error: "Forbidden" }, { status: 403 });
-			const zoneIdsRaw = this.getSetting("cloudflare_zone_ids");
 			return json({
 				hasToken: !!this.getSetting("cloudflare_api_token"),
-				zoneIds: zoneIdsRaw ? JSON.parse(zoneIdsRaw) : [],
 				lastSyncAt: this.getSetting("cloudflare_last_sync_at") || null,
 				lastSyncError: this.getSetting("cloudflare_last_sync_error") || null,
 			});
 		}
 		if (url.pathname === "/cloudflare-config" && method === "PUT") {
 			if (actor.role !== "admin") return json({ error: "Forbidden" }, { status: 403 });
-			const { apiToken, zoneIds } = body as { apiToken?: string; zoneIds?: string[] | string };
+			const { apiToken } = body as { apiToken?: string };
 			if (apiToken?.trim()) this.setSetting("cloudflare_api_token", apiToken.trim());
-			const zones = Array.isArray(zoneIds) ? zoneIds : String(zoneIds || "").split(/[\s,]+/);
-			this.setSetting("cloudflare_zone_ids", JSON.stringify(zones.map((z) => z.trim()).filter(Boolean)));
 			return json({ ok: true });
 		}
 		if (url.pathname === "/domains/sync" && method === "POST") {

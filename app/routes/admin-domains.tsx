@@ -29,13 +29,12 @@ export default function AdminDomainsRoute() {
 	const syncDomains = useSyncDomains();
 	const [domain, setDomain] = useState("");
 	const [apiToken, setApiToken] = useState("");
-	const [zoneIds, setZoneIds] = useState("");
 
 	if (isSessionLoading) return <div className="flex justify-center py-20"><Loader size="lg" /></div>;
 	if (!session?.user || session.user.role !== "admin") return <Navigate to="/" replace />;
 
 	return (
-		<div className="mx-auto max-w-5xl px-4 py-6 md:px-8 space-y-6">
+		<div className="mx-auto max-w-4xl px-4 py-6 md:px-8 space-y-6">
 			<div className="space-y-4">
 				<AdminTabs showHomeLink />
 				<h1 className="text-xl font-semibold text-kumo-default">Domains</h1>
@@ -85,26 +84,12 @@ export default function AdminDomainsRoute() {
 					value={apiToken}
 					onChange={(e) => setApiToken(e.target.value)}
 				/>
-				<Input
-					label="Zone IDs"
-					name="cloudflare-zone-ids"
-					autoComplete="off"
-					autoCorrect="off"
-					autoCapitalize="none"
-					spellCheck={false}
-					placeholder="zone-id-1, zone-id-2"
-					value={zoneIds || cloudflare?.zoneIds.join(", ") || ""}
-					onChange={(e) => setZoneIds(e.target.value)}
-				/>
 				<div className="flex gap-2">
 					<Button
 						variant="secondary"
 						onClick={async () => {
 							try {
-								await updateCloudflare.mutateAsync({
-									apiToken,
-									zoneIds: zoneIds.split(",").map((item) => item.trim()).filter(Boolean),
-								});
+								await updateCloudflare.mutateAsync({ apiToken });
 								setApiToken("");
 								toast.add({ title: "Cloudflare config saved" });
 							} catch {

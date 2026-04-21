@@ -56,7 +56,6 @@ export interface AdminDomain {
 
 export interface CloudflareConfig {
 	hasToken: boolean;
-	zoneIds: string[];
 	lastSyncAt: string | null;
 	lastSyncError: string | null;
 }

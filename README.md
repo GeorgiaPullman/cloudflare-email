@@ -24,7 +24,7 @@ https://github.com/cloudflare/agentic-inbox/issues/4#issuecomment-4269118513
      [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Anita-Goodal/cloudflare-email-agentic-inbox)
 
 2. **Initialize the app** -- Visit your deployed app and create the first account. The first account becomes the administrator. Public registration is disabled after this step.
-3. **Add sending domains** -- In the administrator dashboard, add domains manually or configure a Cloudflare API token and Zone IDs to discover Email Service sending domains.
+3. **Add sending domains** -- In the administrator dashboard, add domains manually or configure a Cloudflare API token to discover Email Service sending domains automatically.
 4. **Set up Email Routing** -- In the Cloudflare dashboard, go to your domain > Email Routing and create a catch-all rule that forwards to this Worker.
 5. **Enable Email Service** -- The worker needs the `send_email` binding to send outbound emails. See [Email Service docs](https://developers.cloudflare.com/email-routing/email-workers/send-email-workers/).
 6. **Create a mailbox** -- Visit your deployed app and create a mailbox for any active domain configured in the admin dashboard.
@@ -54,7 +54,7 @@ npm run dev
 ### Configuration
 
 1. Create an R2 bucket named `cloudflare-email`: `wrangler r2 bucket create cloudflare-email`
-2. If you want automatic sending-domain discovery, configure a Cloudflare API token and zone IDs later in the admin dashboard after deployment.
+2. If you want automatic sending-domain discovery, configure a Cloudflare API token later in the admin dashboard after deployment.
 
 ### Deploy
 

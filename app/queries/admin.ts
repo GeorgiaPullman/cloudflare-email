@@ -89,8 +89,8 @@ export function useCloudflareConfig() {
 export function useUpdateCloudflareConfig() {
 	const qc = useQueryClient();
 	return useMutation({
-		mutationFn: ({ apiToken, zoneIds }: { apiToken: string; zoneIds: string[] }) =>
-			api.updateCloudflareConfig(apiToken, zoneIds),
+		mutationFn: ({ apiToken }: { apiToken: string }) =>
+			api.updateCloudflareConfig(apiToken),
 		onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.admin.cloudflare }),
 	});
 }
@@ -138,4 +138,3 @@ export function useDeleteMcpKey() {
 		onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.admin.mcpKeys }),
 	});
 }
-
