@@ -6,6 +6,36 @@ import { create } from "zustand";
 import type { Email } from "~/types";
 
 export type ComposeMode = "new" | "reply" | "reply-all" | "forward";
+export type AgentSidebarTab = "agent" | "mcp";
+
+const AGENT_PANEL_OPEN_STORAGE_KEY = "mailflare.agentPanelOpen";
+const AGENT_SIDEBAR_TAB_STORAGE_KEY = "mailflare.agentSidebarTab";
+
+function readStorageValue(key: string) {
+	if (typeof window === "undefined") return null;
+	try {
+		return window.localStorage.getItem(key);
+	} catch {
+		return null;
+	}
+}
+
+function writeStorageValue(key: string, value: string) {
+	if (typeof window === "undefined") return;
+	try {
+		window.localStorage.setItem(key, value);
+	} catch {
+		// Ignore storage failures so UI controls still work.
+	}
+}
+
+function readAgentPanelOpenPreference() {
+	return readStorageValue(AGENT_PANEL_OPEN_STORAGE_KEY) === "true";
+}
+
+function readAgentSidebarTabPreference(): AgentSidebarTab {
+	return readStorageValue(AGENT_SIDEBAR_TAB_STORAGE_KEY) === "mcp" ? "mcp" : "agent";
+}
 
 export interface ComposeOptions {
 	mode: ComposeMode;
@@ -35,7 +65,10 @@ interface UIState {
 
 	// Agent panel
 	isAgentPanelOpen: boolean;
+	agentSidebarTab: AgentSidebarTab;
 	toggleAgentPanel: () => void;
+	setAgentSidebarTab: (tab: AgentSidebarTab) => void;
+	hydrateUIPreferences: () => void;
 
 	// Legacy dialog support (kept for non-split views)
 	isComposeModalOpen: boolean;
@@ -50,7 +83,8 @@ export const useUIStore = create<UIState>((set, get) => ({
 	composeOptions: { mode: "new", originalEmail: null },
 	isComposeModalOpen: false,
 	isSidebarOpen: false,
-	isAgentPanelOpen: true,
+	isAgentPanelOpen: false,
+	agentSidebarTab: "agent",
 
 	selectEmail: (id) => set({ selectedEmailId: id, isComposing: false }),
 
@@ -82,7 +116,21 @@ export const useUIStore = create<UIState>((set, get) => ({
 	closeSidebar: () => set({ isSidebarOpen: false }),
 	toggleSidebar: () => set({ isSidebarOpen: !get().isSidebarOpen }),
 
-	toggleAgentPanel: () => set({ isAgentPanelOpen: !get().isAgentPanelOpen }),
+	toggleAgentPanel: () =>
+		set((state) => {
+			const isAgentPanelOpen = !state.isAgentPanelOpen;
+			writeStorageValue(AGENT_PANEL_OPEN_STORAGE_KEY, String(isAgentPanelOpen));
+			return { isAgentPanelOpen };
+		}),
+	setAgentSidebarTab: (tab) => {
+		writeStorageValue(AGENT_SIDEBAR_TAB_STORAGE_KEY, tab);
+		set({ agentSidebarTab: tab });
+	},
+	hydrateUIPreferences: () =>
+		set({
+			isAgentPanelOpen: readAgentPanelOpenPreference(),
+			agentSidebarTab: readAgentSidebarTabPreference(),
+		}),
 
 	openComposeModal: (options) =>
 		set({

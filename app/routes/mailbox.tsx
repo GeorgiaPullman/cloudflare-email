@@ -22,7 +22,12 @@ export default function MailboxRoute() {
 		isAgentPanelOpen,
 		closePanel,
 		closeComposeModal,
+		hydrateUIPreferences,
 	} = useUIStore();
+
+	useEffect(() => {
+		hydrateUIPreferences();
+	}, [hydrateUIPreferences]);
 
 	useEffect(() => {
 		if (

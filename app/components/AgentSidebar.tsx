@@ -5,6 +5,7 @@
 import { Loader } from "@cloudflare/kumo";
 import { PlugsIcon, RobotIcon } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
+import { useUIStore } from "~/hooks/useUIStore";
 import MCPPanel from "./MCPPanel";
 
 function LazyAgentPanel() {
@@ -41,7 +42,8 @@ function LazyAgentPanel() {
 }
 
 export default function AgentSidebar() {
-	const [activeTab, setActiveTab] = useState<"agent" | "mcp">("agent");
+	const activeTab = useUIStore((state) => state.agentSidebarTab);
+	const setActiveTab = useUIStore((state) => state.setAgentSidebarTab);
 
 	return (
 		<div className="flex flex-col h-full">
