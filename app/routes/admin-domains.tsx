@@ -44,7 +44,17 @@ export default function AdminDomainsRoute() {
 			<div className="rounded-lg border border-kumo-line bg-kumo-base p-5 space-y-4">
 				<div className="text-sm font-medium text-kumo-default">Manual domain management</div>
 				<div className="flex gap-3">
-					<Input className="flex-1" placeholder="example.com" value={domain} onChange={(e) => setDomain(e.target.value)} />
+					<Input
+						className="flex-1"
+						name="manual-domain-entry"
+						autoComplete="off"
+						autoCorrect="off"
+						autoCapitalize="none"
+						spellCheck={false}
+						placeholder="example.com"
+						value={domain}
+						onChange={(e) => setDomain(e.target.value)}
+					/>
 					<Button
 						variant="primary"
 						onClick={async () => {
@@ -66,12 +76,22 @@ export default function AdminDomainsRoute() {
 				<Input
 					label="API Token"
 					type="password"
+					name="cloudflare-api-token"
+					autoComplete="off"
+					autoCorrect="off"
+					autoCapitalize="none"
+					spellCheck={false}
 					placeholder={cloudflare?.hasToken ? "Token already configured" : "Paste Cloudflare API token"}
 					value={apiToken}
 					onChange={(e) => setApiToken(e.target.value)}
 				/>
 				<Input
 					label="Zone IDs"
+					name="cloudflare-zone-ids"
+					autoComplete="off"
+					autoCorrect="off"
+					autoCapitalize="none"
+					spellCheck={false}
 					placeholder="zone-id-1, zone-id-2"
 					value={zoneIds || cloudflare?.zoneIds.join(", ") || ""}
 					onChange={(e) => setZoneIds(e.target.value)}
