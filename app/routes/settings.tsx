@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
-import { Badge, Button, Input, Loader, useKumoToastManager } from "@cloudflare/kumo";
+import { Badge, Button, Input, Loader, Switch, useKumoToastManager } from "@cloudflare/kumo";
 import { RobotIcon, ArrowCounterClockwiseIcon } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router";
@@ -21,6 +21,7 @@ export default function SettingsRoute() {
 	const changePassword = useChangePassword();
 
 	const [displayName, setDisplayName] = useState("");
+	const [agentAutoDraftEnabled, setAgentAutoDraftEnabled] = useState(true);
 	const [agentPrompt, setAgentPrompt] = useState("");
 	const [isSaving, setIsSaving] = useState(false);
 	const [currentPassword, setCurrentPassword] = useState("");
@@ -29,6 +30,7 @@ export default function SettingsRoute() {
 	useEffect(() => {
 		if (mailbox) {
 			setDisplayName(mailbox.settings?.fromName || mailbox.name || "");
+			setAgentAutoDraftEnabled(mailbox.settings?.agentAutoDraft?.enabled ?? true);
 			setAgentPrompt(mailbox.settings?.agentSystemPrompt || "");
 		}
 	}, [mailbox]);
@@ -39,6 +41,9 @@ export default function SettingsRoute() {
 		const settings = {
 			...mailbox.settings,
 			fromName: displayName,
+			agentAutoDraft: {
+				enabled: agentAutoDraftEnabled,
+			},
 			agentSystemPrompt: agentPrompt.trim() || undefined,
 		};
 		try {
@@ -128,6 +133,23 @@ export default function SettingsRoute() {
 						Customize how the AI agent behaves for this mailbox.
 						Leave empty to use the built-in default prompt.
 					</p>
+					<div className="mb-4 rounded-lg border border-kumo-line bg-kumo-recessed p-4">
+						<div className="flex items-start justify-between gap-4">
+							<div>
+								<div className="text-sm font-medium text-kumo-default">
+									Auto-generate reply drafts
+								</div>
+								<p className="text-xs text-kumo-subtle mt-1">
+									When enabled, new incoming emails automatically trigger the AI agent to create a reply draft.
+								</p>
+							</div>
+							<Switch
+								aria-label="Enable AI auto-draft replies"
+								checked={agentAutoDraftEnabled}
+								onCheckedChange={setAgentAutoDraftEnabled}
+							/>
+						</div>
+					</div>
 					<textarea
 						value={agentPrompt}
 						onChange={(e) => setAgentPrompt(e.target.value)}

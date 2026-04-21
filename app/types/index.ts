@@ -8,11 +8,16 @@ export interface SignatureSettings {
 	html?: string;
 }
 
+export interface AgentAutoDraftSettings {
+	enabled: boolean;
+}
+
 export interface MailboxSettings {
 	fromName?: string;
 	forwarding?: { enabled: boolean; email: string };
 	signature?: SignatureSettings;
 	autoReply?: { enabled: boolean; subject: string; message: string };
+	agentAutoDraft?: AgentAutoDraftSettings;
 	agentSystemPrompt?: string;
 }
 

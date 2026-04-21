@@ -87,6 +87,19 @@ You can ONLY draft emails. You do NOT have the ability to send emails directly.
 ## Draft Management
 Use discard_draft to delete drafts that the operator rejects or that are no longer needed.`;
 
+async function isAutoDraftEnabled(env: Env, mailboxId: string): Promise<boolean> {
+	try {
+		const key = `mailboxes/${mailboxId}.json`;
+		const obj = await env.BUCKET.get(key);
+		if (!obj) return true;
+		const settings = await obj.json<Record<string, unknown>>();
+		const agentAutoDraft = settings.agentAutoDraft as { enabled?: unknown } | undefined;
+		return agentAutoDraft?.enabled !== false;
+	} catch {
+		return true;
+	}
+}
+
 /**
  * Fetch the custom system prompt for a mailbox from its R2 settings.
  * Falls back to DEFAULT_SYSTEM_PROMPT if none is configured.
@@ -334,6 +347,9 @@ export class EmailAgent extends AIChatAgent<any> {
 		threadId: string;
 	}) {
 		const env = this.env as Env;
+		if (!(await isAutoDraftEnabled(env, emailData.mailboxId))) {
+			return { status: "disabled" };
+		}
 		const workersai = createWorkersAI({ binding: env.AI });
 		const tools = createEmailTools(env, emailData.mailboxId);
 		const systemPrompt = await getSystemPrompt(env, emailData.mailboxId);
