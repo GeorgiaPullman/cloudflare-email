@@ -30,6 +30,9 @@ export function meta() {
 	return [{ title: "Mailflare" }];
 }
 
+const CLOUDFLARE_EMAIL_ROUTING_DOCS = "https://developers.cloudflare.com/email-routing/";
+const CLOUDFLARE_SEND_EMAIL_DOCS = "https://developers.cloudflare.com/email-routing/email-workers/send-email-workers/";
+
 function AuthForm({ isInitialized }: { isInitialized: boolean }) {
 	const toast = useKumoToastManager();
 	const login = useLogin();
@@ -238,6 +241,45 @@ export default function HomeRoute() {
 						</div>
 					</div>
 				)}
+
+				<div className="mt-6 rounded-xl border border-kumo-line bg-kumo-base p-5">
+					<h2 className="text-sm font-semibold text-kumo-default">Required setup</h2>
+					<ol className="mt-3 space-y-2 text-sm text-kumo-subtle list-decimal pl-5">
+						<li>
+							Add at least one active sending domain in{" "}
+							{session.user.role === "admin" ? (
+								<RouterLink to="/admin/domains" className="text-kumo-foreground no-underline hover:underline">
+									Domains
+								</RouterLink>
+							) : (
+								<span className="text-kumo-default">Domains</span>
+							)}
+							, or save a Cloudflare API token there to sync domains automatically.
+						</li>
+						<li>
+							Set up Cloudflare Email Routing for your domain and point the route to this Worker.{" "}
+							<a
+								href={CLOUDFLARE_EMAIL_ROUTING_DOCS}
+								target="_blank"
+								rel="noreferrer"
+								className="text-kumo-foreground no-underline hover:underline"
+							>
+								Cloudflare Email Routing guide
+							</a>
+						</li>
+						<li>
+							Enable Cloudflare Email Service so outbound sending is available for the domain.{" "}
+							<a
+								href={CLOUDFLARE_SEND_EMAIL_DOCS}
+								target="_blank"
+								rel="noreferrer"
+								className="text-kumo-foreground no-underline hover:underline"
+							>
+								Cloudflare Email Service guide
+							</a>
+						</li>
+					</ol>
+				</div>
 			</div>
 
 			<Dialog.Root open={isCreateOpen} onOpenChange={setIsCreateOpen}>
