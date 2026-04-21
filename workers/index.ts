@@ -139,8 +139,9 @@ app.post("/api/v1/setup/bootstrap-admin", async (c) => {
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(await c.req.json()),
 	});
-	const payload = await response.json() as { error?: string; session?: { id: string; expiresAt: string }; user?: unknown };
+	const payload = await response.json().catch(() => ({ error: "Bootstrap admin request failed" })) as { error?: string; session?: { id: string; expiresAt: string }; user?: unknown };
 	if (!response.ok) return c.json(payload, response.status as 400 | 401 | 403 | 409);
+	if (!payload.session) return c.json({ error: payload.error || "Bootstrap admin request failed" }, 500);
 	c.header("Set-Cookie", sessionCookie(payload.session!.id, payload.session!.expiresAt, !import.meta.env.DEV));
 	return c.json({ user: payload.user }, 201);
 });
@@ -151,8 +152,9 @@ app.post("/api/v1/auth/login", async (c) => {
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(await c.req.json()),
 	});
-	const payload = await response.json() as { error?: string; session?: { id: string; expiresAt: string }; user?: unknown };
+	const payload = await response.json().catch(() => ({ error: "Login request failed" })) as { error?: string; session?: { id: string; expiresAt: string }; user?: unknown };
 	if (!response.ok) return c.json(payload, response.status as 400 | 401 | 403);
+	if (!payload.session) return c.json({ error: payload.error || "Login request failed" }, 500);
 	c.header("Set-Cookie", sessionCookie(payload.session!.id, payload.session!.expiresAt, !import.meta.env.DEV));
 	return c.json({ user: payload.user });
 });

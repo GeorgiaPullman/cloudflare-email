@@ -6,7 +6,7 @@ import { DurableObject } from "cloudflare:workers";
 import type { AuthUser, Env, UserRole, UserStatus } from "../types";
 
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 180;
-const PBKDF2_ITERATIONS = 210_000;
+const PBKDF2_ITERATIONS = 100_000;
 const HASH_ALGORITHM = "SHA-256";
 
 type DomainSource = "manual" | "cloudflare_discovered";
