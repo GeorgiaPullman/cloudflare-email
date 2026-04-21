@@ -5,6 +5,7 @@
 import { Button, Input, Loader, useKumoToastManager } from "@cloudflare/kumo";
 import { useState } from "react";
 import { Navigate } from "react-router";
+import { AdminTabs } from "~/components/AdminTabs";
 import { useCreateMcpKey, useDeleteMcpKey, useMcpKeys, useUpdateMcpKeyStatus } from "~/queries/admin";
 import { useSession } from "~/queries/auth";
 
@@ -23,7 +24,10 @@ export default function AdminMcpKeysRoute() {
 
 	return (
 		<div className="max-w-4xl px-4 py-6 md:px-8 space-y-6">
-			<h1 className="text-xl font-semibold text-kumo-default">MCP Keys</h1>
+			<div className="space-y-4">
+				<AdminTabs />
+				<h1 className="text-xl font-semibold text-kumo-default">MCP Keys</h1>
+			</div>
 			<div className="rounded-lg border border-kumo-line bg-kumo-base p-5 space-y-4">
 				<div className="flex gap-3">
 					<Input className="flex-1" placeholder="Key label" value={label} onChange={(e) => setLabel(e.target.value)} />
@@ -79,4 +83,3 @@ export default function AdminMcpKeysRoute() {
 		</div>
 	);
 }
-

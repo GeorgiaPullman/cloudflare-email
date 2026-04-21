@@ -16,6 +16,7 @@ import { EnvelopeIcon, PlusIcon, TrashIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
 import { Link as RouterLink } from "react-router";
+import { AdminTabs } from "~/components/AdminTabs";
 import { useBootstrapAdmin, useLogin, useLogout, useSession } from "~/queries/auth";
 import api from "~/services/api";
 import {
@@ -149,21 +150,14 @@ export default function HomeRoute() {
 		<div className="min-h-screen bg-kumo-recessed">
 			<div className="mx-auto max-w-2xl px-4 py-8 md:px-6 md:py-16">
 				<div className="mb-8">
-					<div className="flex items-center justify-between gap-3">
+					<div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
 						<div>
 							<h1 className="text-2xl font-bold text-kumo-default">Mailboxes</h1>
 							<p className="text-sm text-kumo-subtle mt-1">
 								Signed in as {session.user.username}
 							</p>
 						</div>
-						<div className="flex items-center gap-2">
-							{session.user.role === "admin" && (
-								<>
-									<RouterLink to="/admin/users" className="text-sm text-kumo-strong">Users</RouterLink>
-									<RouterLink to="/admin/domains" className="text-sm text-kumo-strong">Domains</RouterLink>
-									<RouterLink to="/admin/mcp-keys" className="text-sm text-kumo-strong">MCP Keys</RouterLink>
-								</>
-							)}
+						<div className="flex items-center gap-2 self-start">
 							<Button variant="secondary" size="sm" onClick={() => logout.mutate()}>Sign out</Button>
 							<Button
 								variant="primary"
@@ -179,8 +173,15 @@ export default function HomeRoute() {
 						<p className="text-sm text-kumo-subtle mt-1">{domains.join(", ")}</p>
 					) : (
 						<p className="text-sm text-kumo-subtle mt-1">
-							No active domains yet. Ask an administrator to add one in Domains.
+							{session.user.role === "admin"
+								? "No active domains yet. Add one in Domains before creating mailboxes."
+								: "No active domains yet. An administrator needs to add one before mailboxes can be created."}
 						</p>
+					)}
+					{session.user.role === "admin" && (
+						<div className="mt-4">
+							<AdminTabs />
+						</div>
 					)}
 				</div>
 
@@ -283,4 +284,3 @@ export default function HomeRoute() {
 		</div>
 	);
 }
-

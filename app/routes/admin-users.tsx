@@ -5,6 +5,7 @@
 import { Button, Input, Loader, Select, useKumoToastManager } from "@cloudflare/kumo";
 import { useState } from "react";
 import { Navigate } from "react-router";
+import { AdminTabs } from "~/components/AdminTabs";
 import { useCreateAdminUser, useAdminUsers, useResetUserPassword, useUpdateUserStatus } from "~/queries/admin";
 import { useSession } from "~/queries/auth";
 
@@ -36,7 +37,10 @@ export default function AdminUsersRoute() {
 
 	return (
 		<div className="max-w-4xl px-4 py-6 md:px-8">
-			<h1 className="text-xl font-semibold text-kumo-default mb-6">Users</h1>
+			<div className="mb-6 space-y-4">
+				<AdminTabs />
+				<h1 className="text-xl font-semibold text-kumo-default">Users</h1>
+			</div>
 			<div className="rounded-lg border border-kumo-line bg-kumo-base p-5 mb-6 space-y-4">
 				<div className="grid gap-3 md:grid-cols-[1fr_180px_auto]">
 					<Input label="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
@@ -105,4 +109,3 @@ export default function AdminUsersRoute() {
 		</div>
 	);
 }
-

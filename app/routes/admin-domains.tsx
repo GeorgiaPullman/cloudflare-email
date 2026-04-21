@@ -5,6 +5,7 @@
 import { Button, Input, Loader, useKumoToastManager } from "@cloudflare/kumo";
 import { useState } from "react";
 import { Navigate } from "react-router";
+import { AdminTabs } from "~/components/AdminTabs";
 import {
 	useAdminDomains,
 	useCloudflareConfig,
@@ -35,7 +36,10 @@ export default function AdminDomainsRoute() {
 
 	return (
 		<div className="max-w-5xl px-4 py-6 md:px-8 space-y-6">
-			<h1 className="text-xl font-semibold text-kumo-default">Domains</h1>
+			<div className="space-y-4">
+				<AdminTabs />
+				<h1 className="text-xl font-semibold text-kumo-default">Domains</h1>
+			</div>
 
 			<div className="rounded-lg border border-kumo-line bg-kumo-base p-5 space-y-4">
 				<div className="text-sm font-medium text-kumo-default">Manual domain management</div>
@@ -143,4 +147,3 @@ export default function AdminDomainsRoute() {
 		</div>
 	);
 }
-
