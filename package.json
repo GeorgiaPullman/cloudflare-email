@@ -1,10 +1,10 @@
 {
-	"name": "agentic-inbox",
+	"name": "cloudflare-email",
 	"private": true,
 	"license": "Apache-2.0",
 	"type": "module",
 	"cloudflare": {
-		"label": "Agentic Inbox",
+		"label": "Cloudflare Email",
 		"products": ["Workers", "Durable Objects", "R2", "Workers AI"]
 	},
 	"scripts": {

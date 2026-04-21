@@ -1,13 +1,13 @@
 <div align="center">
-  <h1>Agentic Inbox</h1>
+  <h1>Cloudflare Email</h1>
   <p><em>A self-hosted email client with an AI agent, running entirely on Cloudflare Workers</em></p>
 </div>
 
-Agentic Inbox lets you send, receive, and manage emails through a modern web interface -- all powered by your own Cloudflare account. Incoming emails arrive via [Cloudflare Email Routing](https://developers.cloudflare.com/email-routing/), each mailbox is isolated in its own [Durable Object](https://developers.cloudflare.com/durable-objects/) with a SQLite database, and attachments are stored in [R2](https://developers.cloudflare.com/r2/).
+Cloudflare Email lets you send, receive, and manage emails through a modern web interface -- all powered by your own Cloudflare account. Incoming emails arrive via [Cloudflare Email Routing](https://developers.cloudflare.com/email-routing/), each mailbox is isolated in its own [Durable Object](https://developers.cloudflare.com/durable-objects/) with a SQLite database, and attachments are stored in [R2](https://developers.cloudflare.com/r2/).
 
 An **AI-powered Email Agent** can read your inbox, search conversations, and draft replies -- built with the [Cloudflare Agents SDK](https://developers.cloudflare.com/agents/) and [Workers AI](https://developers.cloudflare.com/workers-ai/).
 
-![Agentic Inbox screenshot](./demo_app.png)
+![Cloudflare Email screenshot](./demo_app.png)
 
 
 Read the blog post to learn more about Cloudflare Email Service and how to use it with the Agents SDK, MCP, and from the Wrangler CLI: [Email for Agents](https://blog.cloudflare.com/email-for-agents/).
@@ -53,7 +53,7 @@ npm run dev
 
 ### Configuration
 
-1. Create an R2 bucket named `agentic-inbox`: `wrangler r2 bucket create agentic-inbox`
+1. Create an R2 bucket named `cloudflare-email`: `wrangler r2 bucket create cloudflare-email`
 2. If you want automatic sending-domain discovery, configure a Cloudflare API token and zone IDs later in the admin dashboard after deployment.
 
 ### Deploy
