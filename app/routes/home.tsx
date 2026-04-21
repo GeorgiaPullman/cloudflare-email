@@ -13,7 +13,7 @@ import {
 	Text,
 	useKumoToastManager,
 } from "@cloudflare/kumo";
-import { DotsThreeOutlineVerticalIcon, EnvelopeIcon, PlusIcon, SignOutIcon, TrashIcon } from "@phosphor-icons/react";
+import { DotsThreeVerticalIcon, EnvelopeIcon, PlusIcon, SignOutIcon, TrashIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
 import { Link as RouterLink } from "react-router";
@@ -171,13 +171,13 @@ export default function HomeRoute() {
 								New Mailbox
 							</Button>
 							<DropdownMenu>
-								<DropdownMenu.Trigger render={(props, state) => (
+								<DropdownMenu.Trigger render={(props) => (
 									<Button
 										{...props}
-										variant={state.open ? "secondary" : "ghost"}
+										variant="secondary"
 										size="sm"
 										shape="square"
-										icon={<DotsThreeOutlineVerticalIcon size={18} />}
+										icon={<DotsThreeVerticalIcon size={18} weight="fill" />}
 										aria-label="Open mailbox actions"
 									/>
 								)} />
