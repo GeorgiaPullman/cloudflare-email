@@ -30,8 +30,8 @@ export function meta() {
 	return [{ title: "Mailflare" }];
 }
 
-const CLOUDFLARE_EMAIL_ROUTING_DOCS = "https://developers.cloudflare.com/email-routing/";
-const CLOUDFLARE_SEND_EMAIL_DOCS = "https://developers.cloudflare.com/email-routing/email-workers/send-email-workers/";
+const EMAIL_ROUTING_GUIDE_IMAGE = "/email-route.png";
+const EMAIL_SENDING_GUIDE_IMAGE = "/email-send.png";
 
 function AuthForm({ isInitialized }: { isInitialized: boolean }) {
 	const toast = useKumoToastManager();
@@ -243,7 +243,7 @@ export default function HomeRoute() {
 				)}
 
 				<div className="mt-6 rounded-xl border border-kumo-line bg-kumo-base p-5">
-					<h2 className="text-sm font-semibold text-kumo-default">首次使用配置</h2>
+					<h2 className="text-sm font-semibold text-kumo-default">首次使用配置说明</h2>
 					<ol className="mt-3 space-y-3 text-sm text-kumo-subtle list-decimal pl-5">
 						<li>
 							先在{" "}
@@ -259,7 +259,7 @@ export default function HomeRoute() {
 						<li>
 							在 Cloudflare 中为域名配置邮件路由，并把捕获规则的目标指向当前 Worker。{" "}
 							<a
-								href={CLOUDFLARE_EMAIL_ROUTING_DOCS}
+								href={EMAIL_ROUTING_GUIDE_IMAGE}
 								target="_blank"
 								rel="noreferrer"
 								className="ml-2 inline-flex items-center rounded-md border border-kumo-line bg-kumo-recessed px-2.5 py-1 text-xs font-medium text-kumo-link no-underline transition-colors hover:bg-kumo-tint hover:text-kumo-link-hover"
@@ -270,7 +270,7 @@ export default function HomeRoute() {
 						<li>
 							在 Cloudflare 中接入发信域名并完成邮件发送配置，确保域名可以正常外发邮件。{" "}
 							<a
-								href={CLOUDFLARE_SEND_EMAIL_DOCS}
+								href={EMAIL_SENDING_GUIDE_IMAGE}
 								target="_blank"
 								rel="noreferrer"
 								className="ml-2 inline-flex items-center rounded-md border border-kumo-line bg-kumo-recessed px-2.5 py-1 text-xs font-medium text-kumo-link no-underline transition-colors hover:bg-kumo-tint hover:text-kumo-link-hover"
