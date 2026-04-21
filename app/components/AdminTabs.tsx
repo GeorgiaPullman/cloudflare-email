@@ -10,27 +10,37 @@ const tabs = [
 	{ label: "MCP Keys", to: "/admin/mcp-keys" },
 ];
 
-export function AdminTabs() {
+export function AdminTabs({ showHomeLink = false }: { showHomeLink?: boolean }) {
 	const location = useLocation();
 
 	return (
-		<nav className="inline-flex max-w-full overflow-hidden rounded-full border border-kumo-line bg-kumo-base p-1 shadow-sm" aria-label="Admin sections">
-			{tabs.map((tab) => {
-				const isActive = location.pathname === tab.to;
-				return (
-					<RouterLink
-						key={tab.to}
-						to={tab.to}
-						className={`rounded-full px-4 py-2 text-sm font-medium no-underline transition-colors ${
-							isActive
-								? "bg-kumo-fill text-kumo-default shadow-sm"
-								: "text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default"
-						}`}
-					>
-						{tab.label}
-					</RouterLink>
-				);
-			})}
-		</nav>
+		<div className="space-y-4">
+			{showHomeLink && (
+				<RouterLink
+					to="/"
+					className="inline-flex items-center text-sm font-medium text-kumo-subtle no-underline transition-colors hover:text-kumo-default"
+				>
+					← Back to Home
+				</RouterLink>
+			)}
+			<nav className="inline-flex max-w-full overflow-hidden rounded-full border border-kumo-line bg-kumo-base p-1 shadow-sm" aria-label="Admin sections">
+				{tabs.map((tab) => {
+					const isActive = location.pathname === tab.to;
+					return (
+						<RouterLink
+							key={tab.to}
+							to={tab.to}
+							className={`rounded-full px-4 py-2 text-sm font-medium no-underline transition-colors ${
+								isActive
+									? "bg-kumo-fill text-kumo-default shadow-sm"
+									: "text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default"
+							}`}
+						>
+							{tab.label}
+						</RouterLink>
+					);
+				})}
+			</nav>
+		</div>
 	);
 }

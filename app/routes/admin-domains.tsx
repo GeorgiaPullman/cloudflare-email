@@ -35,9 +35,9 @@ export default function AdminDomainsRoute() {
 	if (!session?.user || session.user.role !== "admin") return <Navigate to="/" replace />;
 
 	return (
-		<div className="max-w-5xl px-4 py-6 md:px-8 space-y-6">
+		<div className="mx-auto max-w-5xl px-4 py-6 md:px-8 space-y-6">
 			<div className="space-y-4">
-				<AdminTabs />
+				<AdminTabs showHomeLink />
 				<h1 className="text-xl font-semibold text-kumo-default">Domains</h1>
 			</div>
 

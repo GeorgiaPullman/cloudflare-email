@@ -158,7 +158,6 @@ export default function HomeRoute() {
 							</p>
 						</div>
 						<div className="flex items-center gap-2 self-start">
-							<Button variant="secondary" size="sm" onClick={() => logout.mutate()}>Sign out</Button>
 							<Button
 								variant="primary"
 								icon={<PlusIcon size={16} />}
@@ -167,6 +166,7 @@ export default function HomeRoute() {
 							>
 								New Mailbox
 							</Button>
+							<Button variant="secondary" size="sm" onClick={() => logout.mutate()}>Sign out</Button>
 						</div>
 					</div>
 					{domains.length > 0 ? (

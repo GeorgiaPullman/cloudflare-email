@@ -23,9 +23,9 @@ export default function AdminMcpKeysRoute() {
 	if (!session?.user || session.user.role !== "admin") return <Navigate to="/" replace />;
 
 	return (
-		<div className="max-w-4xl px-4 py-6 md:px-8 space-y-6">
+		<div className="mx-auto max-w-4xl px-4 py-6 md:px-8 space-y-6">
 			<div className="space-y-4">
-				<AdminTabs />
+				<AdminTabs showHomeLink />
 				<h1 className="text-xl font-semibold text-kumo-default">MCP Keys</h1>
 			</div>
 			<div className="rounded-lg border border-kumo-line bg-kumo-base p-5 space-y-4">
