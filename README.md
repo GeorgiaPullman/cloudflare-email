@@ -21,7 +21,7 @@ https://github.com/cloudflare/agentic-inbox/issues/4#issuecomment-4269118513
 
 1. Deploy to Cloudflare. The deploy flow will automatically provision R2, Durable Objects, and Workers AI.
 
-     [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/GeorgiaPullman/cloudflare-email)
+     [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Anita-Goodal/cloudflare-email-agentic-inbox)
 
 2. **Initialize the app** -- Visit your deployed app and create the first account. The first account becomes the administrator. Public registration is disabled after this step.
 3. **Add sending domains** -- In the administrator dashboard, add domains manually or configure a Cloudflare API token and Zone IDs to discover Email Service sending domains.
