@@ -243,39 +243,39 @@ export default function HomeRoute() {
 				)}
 
 				<div className="mt-6 rounded-xl border border-kumo-line bg-kumo-base p-5">
-					<h2 className="text-sm font-semibold text-kumo-default">Required setup</h2>
-					<ol className="mt-3 space-y-2 text-sm text-kumo-subtle list-decimal pl-5">
+					<h2 className="text-sm font-semibold text-kumo-default">首次使用配置</h2>
+					<ol className="mt-3 space-y-3 text-sm text-kumo-subtle list-decimal pl-5">
 						<li>
-							Add at least one active sending domain in{" "}
+							先在{" "}
 							{session.user.role === "admin" ? (
-								<RouterLink to="/admin/domains" className="text-kumo-foreground no-underline hover:underline">
-									Domains
+								<RouterLink to="/admin/domains" className="font-medium text-kumo-link no-underline hover:text-kumo-link-hover hover:underline">
+									域名管理
 								</RouterLink>
 							) : (
-								<span className="text-kumo-default">Domains</span>
+								<span className="font-medium text-kumo-default">域名管理</span>
 							)}
-							, or save a Cloudflare API token there to sync domains automatically.
+							中至少添加一个可用发信域名，或保存 Cloudflare API Token 自动同步可用域名。
 						</li>
 						<li>
-							Set up Cloudflare Email Routing for your domain and point the route to this Worker.{" "}
+							在 Cloudflare 中为域名配置邮件路由，并把捕获规则的目标指向当前 Worker。{" "}
 							<a
 								href={CLOUDFLARE_EMAIL_ROUTING_DOCS}
 								target="_blank"
 								rel="noreferrer"
-								className="text-kumo-foreground no-underline hover:underline"
+								className="ml-2 inline-flex items-center rounded-md border border-kumo-line bg-kumo-recessed px-2.5 py-1 text-xs font-medium text-kumo-link no-underline transition-colors hover:bg-kumo-tint hover:text-kumo-link-hover"
 							>
-								Cloudflare Email Routing guide
+								查看教程
 							</a>
 						</li>
 						<li>
-							Enable Cloudflare Email Service so outbound sending is available for the domain.{" "}
+							在 Cloudflare 中接入发信域名并完成邮件发送配置，确保域名可以正常外发邮件。{" "}
 							<a
 								href={CLOUDFLARE_SEND_EMAIL_DOCS}
 								target="_blank"
 								rel="noreferrer"
-								className="text-kumo-foreground no-underline hover:underline"
+								className="ml-2 inline-flex items-center rounded-md border border-kumo-line bg-kumo-recessed px-2.5 py-1 text-xs font-medium text-kumo-link no-underline transition-colors hover:bg-kumo-tint hover:text-kumo-link-hover"
 							>
-								Cloudflare Email Service guide
+								查看教程
 							</a>
 						</li>
 					</ol>
