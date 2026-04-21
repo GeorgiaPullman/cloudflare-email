@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
-import { Badge, Button, Input, Loader, Switch, useKumoToastManager } from "@cloudflare/kumo";
+import { Badge, Button, Input, Loader, useKumoToastManager } from "@cloudflare/kumo";
 import { RobotIcon, ArrowCounterClockwiseIcon } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router";
@@ -143,11 +143,24 @@ export default function SettingsRoute() {
 									When enabled, new incoming emails automatically trigger the AI agent to create a reply draft.
 								</p>
 							</div>
-							<Switch
+							<button
+								type="button"
+								role="switch"
 								aria-label="Enable AI auto-draft replies"
-								checked={agentAutoDraftEnabled}
-								onCheckedChange={setAgentAutoDraftEnabled}
-							/>
+								aria-checked={agentAutoDraftEnabled}
+								onClick={() => setAgentAutoDraftEnabled((enabled) => !enabled)}
+								className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border p-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kumo-ring ${
+									agentAutoDraftEnabled
+										? "border-kumo-brand bg-kumo-brand hover:bg-kumo-brand-hover"
+										: "border-kumo-line bg-kumo-fill hover:bg-kumo-fill-hover"
+								}`}
+							>
+								<span
+									className={`h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+										agentAutoDraftEnabled ? "translate-x-5" : "translate-x-0"
+									}`}
+								/>
+							</button>
 						</div>
 					</div>
 					<textarea
