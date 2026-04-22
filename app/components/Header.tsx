@@ -78,6 +78,11 @@ export default function Header() {
 					<Input
 						className="w-full"
 						aria-label="Search emails"
+						name="mailbox-search"
+						autoComplete="off"
+						autoCorrect="off"
+						autoCapitalize="none"
+						spellCheck={false}
 						placeholder="Search emails... (try from:name, is:unread, has:attachment)"
 						value={searchQuery}
 						onChange={(e) => setSearchQuery(e.target.value)}
