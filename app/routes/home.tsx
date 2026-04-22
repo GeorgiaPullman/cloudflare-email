@@ -289,7 +289,7 @@ export default function HomeRoute() {
 							) : (
 								<span className="font-medium text-kumo-default">域名管理</span>
 							)}
-							中至少添加一个可用发信域名，或保存 Cloudflare API Token 自动同步可用域名。{" "}
+							中配置 Cloudflare API Token 以自动同步可用域名。{" "}
 							<a
 								href={API_TOKEN_GUIDE_IMAGE}
 								target="_blank"
