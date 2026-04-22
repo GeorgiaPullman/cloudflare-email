@@ -33,6 +33,7 @@ export function meta() {
 
 const EMAIL_ROUTING_GUIDE_IMAGE = "/email-route.png";
 const EMAIL_SENDING_GUIDE_IMAGE = "/email-send.png";
+const API_TOKEN_GUIDE_IMAGE = "/api-token.png";
 
 function MoreActionsIcon() {
 	return (
@@ -288,7 +289,15 @@ export default function HomeRoute() {
 							) : (
 								<span className="font-medium text-kumo-default">域名管理</span>
 							)}
-							中至少添加一个可用发信域名，或保存 Cloudflare API Token 自动同步可用域名。
+							中至少添加一个可用发信域名，或保存 Cloudflare API Token 自动同步可用域名。{" "}
+							<a
+								href={API_TOKEN_GUIDE_IMAGE}
+								target="_blank"
+								rel="noreferrer"
+								className="ml-2 inline-flex items-center rounded-md border border-kumo-line bg-kumo-recessed px-2.5 py-1 text-xs font-medium text-kumo-link no-underline transition-colors hover:bg-kumo-tint hover:text-kumo-link-hover"
+							>
+								查看教程
+							</a>
 						</li>
 						<li>
 							在 Cloudflare 中为域名配置邮件路由，并把捕获规则的目标指向当前 Worker。{" "}
