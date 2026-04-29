@@ -451,7 +451,7 @@ export default function HomeRoute() {
 									key={domain}
 									type="button"
 									onClick={() => setDomainFilter(domain)}
-									className={`border-b-2 bg-transparent pb-1 text-sm font-semibold transition-colors ${
+									className={`cursor-pointer border-b-2 bg-transparent pb-1 text-sm font-semibold transition-colors ${
 										active
 											? "border-kumo-brand text-kumo-default"
 											: "border-transparent text-kumo-subtle hover:border-kumo-line hover:text-kumo-default"
