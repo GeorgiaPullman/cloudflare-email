@@ -14,6 +14,16 @@ export function useMailboxes() {
 	});
 }
 
+export function useMailboxFavorites() {
+	return useQuery<string[]>({
+		queryKey: queryKeys.mailboxes.favorites,
+		queryFn: async () => {
+			const result = await api.listMailboxFavorites();
+			return result.favorites;
+		},
+	});
+}
+
 export function useMailbox(mailboxId: string | undefined) {
 	return useQuery<Mailbox>({
 		queryKey: mailboxId
@@ -56,6 +66,32 @@ export function useDeleteMailbox() {
 		mutationFn: (mailboxId: string) => api.deleteMailbox(mailboxId),
 		onSuccess: () => {
 			qc.invalidateQueries({ queryKey: queryKeys.mailboxes.all });
+		},
+	});
+}
+
+export function useUpdateMailboxFavorite() {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: ({ mailboxId, favorited }: { mailboxId: string; favorited: boolean }) =>
+			api.updateMailboxFavorite(mailboxId, favorited),
+		onMutate: async ({ mailboxId, favorited }) => {
+			await qc.cancelQueries({ queryKey: queryKeys.mailboxes.favorites });
+			const previous = qc.getQueryData<string[]>(queryKeys.mailboxes.favorites);
+			qc.setQueryData<string[]>(queryKeys.mailboxes.favorites, (current = []) => {
+				const normalized = mailboxId.toLowerCase();
+				const next = new Set(current.map((email) => email.toLowerCase()));
+				if (favorited) next.add(normalized);
+				else next.delete(normalized);
+				return [...next];
+			});
+			return { previous };
+		},
+		onError: (_error, _variables, context) => {
+			if (context?.previous) qc.setQueryData(queryKeys.mailboxes.favorites, context.previous);
+		},
+		onSettled: () => {
+			qc.invalidateQueries({ queryKey: queryKeys.mailboxes.favorites });
 		},
 	});
 }

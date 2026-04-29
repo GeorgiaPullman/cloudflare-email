@@ -171,3 +171,36 @@ export function useDeleteMcpKey() {
 		onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.admin.mcpKeys }),
 	});
 }
+
+export function useStorageUsage(enabled = true) {
+	return useQuery({
+		queryKey: queryKeys.admin.storageUsage,
+		queryFn: () => api.getStorageUsage(),
+		enabled,
+	});
+}
+
+export function useUpdateStorageQuota() {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: (quotaBytes: number) => api.updateStorageQuota(quotaBytes),
+		onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.admin.storageUsage }),
+	});
+}
+
+export function useCleanupStorage() {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: (months: number) => api.cleanupStorage(months),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: queryKeys.admin.storageUsage });
+			qc.invalidateQueries({ queryKey: queryKeys.mailboxes.all });
+			qc.invalidateQueries({
+				predicate: (query) => {
+					const root = query.queryKey[0];
+					return root === "emails" || root === "folders" || root === "search";
+				},
+			});
+		},
+	});
+}

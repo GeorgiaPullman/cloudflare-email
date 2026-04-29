@@ -11,6 +11,8 @@ import type {
 	Folder,
 	Mailbox,
 	McpApiKey,
+	StorageCleanupResult,
+	StorageUsage,
 	UserMailboxAssignment,
 	UserRole,
 	UserStatus,
@@ -150,6 +152,16 @@ const api = {
 	updateMcpKeyStatus: (id: string, status: "active" | "disabled") =>
 		post<{ ok: boolean }>(`/api/v1/admin/mcp-keys/${id}/status`, { status }),
 	deleteMcpKey: (id: string) => del<{ ok: boolean }>(`/api/v1/admin/mcp-keys/${id}`),
+	getStorageUsage: () => get<StorageUsage>("/api/v1/admin/storage/usage"),
+	updateStorageQuota: (quotaBytes: number) =>
+		put<StorageUsage>("/api/v1/admin/storage/quota", { quotaBytes }),
+	cleanupStorage: (months: number) =>
+		post<StorageCleanupResult>("/api/v1/admin/storage/cleanup", { months }),
+
+	// User mailbox favorites
+	listMailboxFavorites: () => get<{ favorites: string[] }>("/api/v1/mailbox-favorites"),
+	updateMailboxFavorite: (mailboxId: string, favorited: boolean) =>
+		put<{ favorites: string[] }>(`/api/v1/mailbox-favorites/${mailboxId}`, { favorited }),
 
 	// Mailboxes
 	listMailboxes: () => get<Mailbox[]>("/api/v1/mailboxes"),

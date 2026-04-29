@@ -7,6 +7,7 @@ export const queryKeys = {
 	mailboxes: {
 		all: ["mailboxes"] as const,
 		detail: (id: string) => ["mailboxes", id] as const,
+		favorites: ["mailboxes", "favorites"] as const,
 	},
 	emails: {
 		list: (mailboxId: string, params: Record<string, string>) =>
@@ -33,5 +34,6 @@ export const queryKeys = {
 		domains: ["admin", "domains"] as const,
 		cloudflare: ["admin", "cloudflare"] as const,
 		mcpKeys: ["admin", "mcp-keys"] as const,
+		storageUsage: ["admin", "storage", "usage"] as const,
 	},
 };

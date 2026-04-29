@@ -3,6 +3,7 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 import { Button, Input, Loader, Select, useKumoToastManager } from "@cloudflare/kumo";
+import { CaretDownIcon } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
 import { Navigate } from "react-router";
 import { AdminTabs } from "~/components/AdminTabs";
@@ -32,6 +33,12 @@ function roleLabel(role: UserRole) {
 	return "Employee";
 }
 
+function roleSortRank(role: UserRole) {
+	if (role === "primary_admin") return 0;
+	if (role === "admin") return 1;
+	return 2;
+}
+
 function normalizeUsername(username: string) {
 	return username.trim().toLowerCase();
 }
@@ -56,6 +63,7 @@ function UserMailboxManager({ user }: { user: AuthUser }) {
 	const { data, isLoading } = useUserMailboxes(user.id);
 	const updateMailboxes = useUpdateUserMailboxes();
 	const [selected, setSelected] = useState<Set<string> | null>(null);
+	const [isExpanded, setIsExpanded] = useState(false);
 
 	const autoMailboxes = useMemo(
 		() => allMailboxes
@@ -92,26 +100,39 @@ function UserMailboxManager({ user }: { user: AuthUser }) {
 		}
 	};
 
-	if (user.role !== "employee") return null;
+	if (user.role !== "employee" || user.status === "disabled") return null;
 
 	return (
 		<div className="mt-4 rounded-lg border border-kumo-line bg-kumo-recessed p-4">
-			<div className="mb-3 flex items-center justify-between gap-3">
-				<div>
-					<div className="text-sm font-medium text-kumo-default">Mailbox access</div>
-					<div className="text-xs text-kumo-subtle">同名邮箱会自动分配，其他邮箱可手动勾选。</div>
-				</div>
-				<Button
-					size="sm"
-					variant="primary"
-					onClick={save}
-					loading={updateMailboxes.isPending}
-					disabled={isLoading || selected === null}
+			<div className={`${isExpanded ? "mb-3" : ""} flex items-center justify-between gap-3`}>
+				<button
+					type="button"
+					onClick={() => setIsExpanded((value) => !value)}
+					className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-left text-kumo-default hover:text-kumo-link"
+					aria-expanded={isExpanded}
 				>
-					Save Access
-				</Button>
+					<CaretDownIcon
+						size={16}
+						className={`shrink-0 transition-transform ${isExpanded ? "" : "-rotate-90"}`}
+					/>
+					<span className="min-w-0">
+						<span className="block text-sm font-medium">Mailbox access</span>
+						<span className="block text-xs text-kumo-subtle">同名邮箱会自动分配，其他邮箱可手动勾选。</span>
+					</span>
+				</button>
+				{isExpanded && (
+					<Button
+						size="sm"
+						variant="primary"
+						onClick={save}
+						loading={updateMailboxes.isPending}
+						disabled={isLoading || selected === null}
+					>
+						Save Access
+					</Button>
+				)}
 			</div>
-			{isLoading ? (
+			{isExpanded && (isLoading ? (
 				<div className="py-4"><Loader size="sm" /></div>
 			) : allMailboxes.length === 0 ? (
 				<div className="text-sm text-kumo-subtle">No mailboxes available yet.</div>
@@ -140,7 +161,7 @@ function UserMailboxManager({ user }: { user: AuthUser }) {
 						);
 					})}
 				</div>
-			)}
+			))}
 		</div>
 	);
 }
@@ -158,6 +179,10 @@ export default function AdminUsersRoute() {
 	const [role, setRole] = useState<"admin" | "employee">("employee");
 	const [mailboxesToCreate, setMailboxesToCreate] = useState<Set<string>>(new Set());
 	const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
+	const sortedUsers = useMemo(
+		() => [...users].sort((a, b) => roleSortRank(a.role) - roleSortRank(b.role)),
+		[users],
+	);
 
 	if (isSessionLoading) return <div className="flex justify-center py-20"><Loader size="lg" /></div>;
 	if (!session?.user || !isAdminRole(session.user.role)) return <Navigate to="/" replace />;
@@ -245,7 +270,7 @@ export default function AdminUsersRoute() {
 			<div className="rounded-lg border border-kumo-line bg-kumo-base overflow-hidden">
 				{isLoading ? (
 					<div className="flex justify-center py-12"><Loader size="lg" /></div>
-				) : users.map((user) => {
+				) : sortedUsers.map((user) => {
 					const roleEditable = canChangeRole(session.user, user);
 					const statusEditable = canChangeStatus(session.user, user);
 					return (

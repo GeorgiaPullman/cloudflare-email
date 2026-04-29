@@ -82,6 +82,43 @@ export interface McpApiKey {
 	lastUsedAt: string | null;
 }
 
+export interface StorageMailboxUsage {
+	mailboxId: string;
+	databaseSize: number;
+	emailCount: number;
+	attachmentCount: number;
+	attachmentBytes: number;
+	oldestEmailDate: string | null;
+	usagePercent: number;
+}
+
+export interface StorageUsage {
+	quotaBytes: number;
+	totalDatabaseSize: number;
+	totalEmailCount: number;
+	totalAttachmentCount: number;
+	totalAttachmentBytes: number;
+	mailboxCount: number;
+	highestUsagePercent: number;
+	highestUsageMailbox: StorageMailboxUsage | null;
+	mailboxes: StorageMailboxUsage[];
+}
+
+export interface StorageCleanupResult {
+	months: number;
+	cutoffIso: string;
+	processedMailboxCount: number;
+	deletedEmailCount: number;
+	deletedAttachmentCount: number;
+	r2DeleteFailureCount: number;
+	failedMailboxes: string[];
+	before: {
+		totalDatabaseSize: number;
+		highestUsagePercent: number;
+	};
+	after: StorageUsage;
+}
+
 export interface Email {
 	id: string;
 	thread_id?: string | null;

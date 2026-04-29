@@ -8,6 +8,7 @@ import type { AuthUser, Env, UserRole, UserStatus } from "../types";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 180;
 const PBKDF2_ITERATIONS = 100_000;
 const HASH_ALGORITHM = "SHA-256";
+const DEFAULT_STORAGE_QUOTA_BYTES = 1024 * 1024 * 1024;
 
 type DomainSource = "manual" | "cloudflare_discovered";
 type DomainStatus = "active" | "disabled";
@@ -53,6 +54,12 @@ interface MailboxAssignmentRow {
 	source: AssignmentSource;
 	created_at: string;
 	created_by: string | null;
+}
+
+interface MailboxFavoriteRow {
+	user_id: string;
+	mailbox_email: string;
+	created_at: string;
 }
 
 function json(data: unknown, init?: ResponseInit) {
@@ -215,6 +222,12 @@ function assignmentPublic(row: MailboxAssignmentRow, exists: boolean) {
 	};
 }
 
+function normalizeQuotaBytes(value: unknown) {
+	const quota = Number(value);
+	const allowed = [1024 * 1024 * 1024, 10 * 1024 * 1024 * 1024];
+	return allowed.includes(quota) ? quota : DEFAULT_STORAGE_QUOTA_BYTES;
+}
+
 export class AppAdminDO extends DurableObject<Env> {
 	constructor(state: DurableObjectState, env: Env) {
 		super(state, env);
@@ -323,6 +336,17 @@ export class AppAdminDO extends DurableObject<Env> {
 
 				CREATE INDEX IF NOT EXISTS idx_mailbox_assignments_email ON mailbox_assignments(mailbox_email);
 			`);
+			this.ctx.storage.sql.exec(`
+				CREATE TABLE IF NOT EXISTS mailbox_favorites (
+					user_id TEXT NOT NULL,
+					mailbox_email TEXT NOT NULL,
+					created_at TEXT NOT NULL,
+					PRIMARY KEY(user_id, mailbox_email),
+					FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+				);
+
+				CREATE INDEX IF NOT EXISTS idx_mailbox_favorites_email ON mailbox_favorites(mailbox_email);
+			`);
 		});
 	}
 
@@ -384,6 +408,10 @@ export class AppAdminDO extends DurableObject<Env> {
 		return rows.map((row) => row.domain);
 	}
 
+	private getStorageQuotaBytes() {
+		return normalizeQuotaBytes(this.getSetting("storage_quota_bytes"));
+	}
+
 	private listAssignments(userId: string) {
 		return [...this.ctx.storage.sql.exec(
 			"SELECT * FROM mailbox_assignments WHERE user_id = ? ORDER BY mailbox_email ASC",
@@ -418,6 +446,35 @@ export class AppAdminDO extends DurableObject<Env> {
 			email,
 		)][0];
 		return !!row;
+	}
+
+	private listFavorites(userId: string) {
+		const rows = [...this.ctx.storage.sql.exec(
+			"SELECT * FROM mailbox_favorites WHERE user_id = ? ORDER BY created_at ASC",
+			userId,
+		)] as unknown as MailboxFavoriteRow[];
+		return rows.map((row) => row.mailbox_email);
+	}
+
+	private setFavorite(userId: string, mailboxEmail: string, favorited: boolean) {
+		const email = normalizeEmail(mailboxEmail);
+		if (!email) return;
+		if (favorited) {
+			this.ctx.storage.sql.exec(
+				`INSERT INTO mailbox_favorites (user_id, mailbox_email, created_at)
+				 VALUES (?, ?, ?)
+				 ON CONFLICT(user_id, mailbox_email) DO NOTHING`,
+				userId,
+				email,
+				new Date().toISOString(),
+			);
+			return;
+		}
+		this.ctx.storage.sql.exec(
+			"DELETE FROM mailbox_favorites WHERE user_id = ? AND mailbox_email = ?",
+			userId,
+			email,
+		);
 	}
 
 	private assertCanMutateUser(actor: UserRow, target: UserRow, action: "status" | "role" | "reset") {
@@ -604,6 +661,18 @@ export class AppAdminDO extends DurableObject<Env> {
 			});
 		}
 
+		if (url.pathname === "/storage/quota" && method === "GET") {
+			return json({ quotaBytes: this.getStorageQuotaBytes() });
+		}
+
+		if (url.pathname === "/storage/quota" && method === "PUT") {
+			if (!isAdminRole(actor.role)) return json({ error: "Forbidden" }, { status: 403 });
+			const { quotaBytes } = body as { quotaBytes?: unknown };
+			const normalizedQuotaBytes = normalizeQuotaBytes(quotaBytes);
+			this.setSetting("storage_quota_bytes", String(normalizedQuotaBytes));
+			return json({ quotaBytes: normalizedQuotaBytes });
+		}
+
 		if (url.pathname === "/mailbox-access" && method === "POST") {
 			const { userId, mailboxEmail } = body as { userId?: string; mailboxEmail?: string };
 			const user = userId ? this.getUserById(userId) : undefined;
@@ -622,6 +691,29 @@ export class AppAdminDO extends DurableObject<Env> {
 			return json({ mailboxEmails: visible });
 		}
 
+		if (url.pathname === "/mailbox-favorites" && method === "POST") {
+			const { userId, mailboxEmails = [] } = body as { userId?: string; mailboxEmails?: string[] };
+			const user = userId ? this.getUserById(userId) : undefined;
+			if (!user) return json({ favorites: [] }, { status: 400 });
+			const visible = new Set(
+				isAdminRole(user.role)
+					? mailboxEmails.map(normalizeEmail)
+					: mailboxEmails.map(normalizeEmail).filter((email) => this.canAccessMailbox(userPublic(user), email)),
+			);
+			const favorites = this.listFavorites(user.id).filter((email) => visible.has(email));
+			return json({ favorites });
+		}
+
+		if (url.pathname === "/mailbox-favorites" && method === "PUT") {
+			const { userId, mailboxEmail, favorited } = body as { userId?: string; mailboxEmail?: string; favorited?: boolean };
+			const user = userId ? this.getUserById(userId) : undefined;
+			const email = normalizeEmail(mailboxEmail || "");
+			if (!user || !email || typeof favorited !== "boolean") return json({ error: "Invalid favorite request" }, { status: 400 });
+			if (!isAdminRole(user.role) && !this.canAccessMailbox(userPublic(user), email)) return json({ error: "Forbidden" }, { status: 403 });
+			this.setFavorite(user.id, email, favorited);
+			return json({ favorites: this.listFavorites(user.id) });
+		}
+
 		if (url.pathname === "/mailbox-created" && method === "POST") {
 			const { mailboxEmail } = body as { mailboxEmail?: string };
 			const email = normalizeEmail(mailboxEmail || "");
@@ -637,6 +729,7 @@ export class AppAdminDO extends DurableObject<Env> {
 			const email = normalizeEmail(mailboxEmail || "");
 			if (!email) return json({ ok: false }, { status: 400 });
 			this.ctx.storage.sql.exec("DELETE FROM mailbox_assignments WHERE mailbox_email = ?", email);
+			this.ctx.storage.sql.exec("DELETE FROM mailbox_favorites WHERE mailbox_email = ?", email);
 			return json({ ok: true });
 		}
 

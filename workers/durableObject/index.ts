@@ -99,6 +99,12 @@ interface AttachmentData {
 	disposition?: string | null;
 }
 
+interface CleanupCandidate {
+	email_id: string;
+	attachment_id: string | null;
+	filename: string | null;
+}
+
 export class MailboxDO extends DurableObject<Env> {
 	declare __DURABLE_OBJECT_BRAND: never;
 	db: ReturnType<typeof drizzle>;
@@ -558,6 +564,61 @@ export class MailboxDO extends DurableObject<Env> {
 			.run();
 
 		return emailAttachments;
+	}
+
+	async getStorageStats() {
+		const emailRow = [...this.ctx.storage.sql.exec(
+			`SELECT
+				COUNT(*) as emailCount,
+				MIN(date) as oldestEmailDate
+			 FROM emails`,
+		)][0] as { emailCount?: number; oldestEmailDate?: string | null } | undefined;
+
+		const attachmentRow = [...this.ctx.storage.sql.exec(
+			`SELECT
+				COUNT(*) as attachmentCount,
+				COALESCE(SUM(size), 0) as attachmentBytes
+			 FROM attachments`,
+		)][0] as { attachmentCount?: number; attachmentBytes?: number } | undefined;
+
+		return {
+			databaseSize: this.ctx.storage.sql.databaseSize,
+			emailCount: Number(emailRow?.emailCount ?? 0),
+			attachmentCount: Number(attachmentRow?.attachmentCount ?? 0),
+			attachmentBytes: Number(attachmentRow?.attachmentBytes ?? 0),
+			oldestEmailDate: emailRow?.oldestEmailDate ?? null,
+		};
+	}
+
+	async cleanupEmailsBefore(cutoffIso: string) {
+		const candidates = [...this.ctx.storage.sql.exec(
+			`SELECT
+				e.id as email_id,
+				a.id as attachment_id,
+				a.filename as filename
+			 FROM emails e
+			 LEFT JOIN attachments a ON a.email_id = e.id
+			 WHERE e.date < ?`,
+			cutoffIso,
+		)] as unknown as CleanupCandidate[];
+
+		const emailIds = new Set(candidates.map((row) => row.email_id));
+		const attachmentKeys = candidates
+			.filter((row) => row.attachment_id && row.filename)
+			.map((row) => `attachments/${row.email_id}/${row.attachment_id}/${row.filename}`);
+
+		if (emailIds.size > 0) {
+			this.ctx.storage.transactionSync(() => {
+				this.ctx.storage.sql.exec("DELETE FROM emails WHERE date < ?", cutoffIso);
+			});
+		}
+
+		return {
+			deletedEmailCount: emailIds.size,
+			deletedAttachmentCount: attachmentKeys.length,
+			attachmentKeys,
+			databaseSize: this.ctx.storage.sql.databaseSize,
+		};
 	}
 
 	async getAttachment(id: string) {

@@ -52,6 +52,16 @@ const DraftBody = z.object({
 	draft_id: z.string().optional(),
 });
 
+const StorageQuotaBody = z.object({
+	quotaBytes: z.union([z.literal(1024 * 1024 * 1024), z.literal(10 * 1024 * 1024 * 1024)]),
+});
+
+const StorageCleanupBody = z.object({
+	months: z.number().int().min(1).max(24),
+});
+
+const DEFAULT_STORAGE_QUOTA_BYTES = 1024 * 1024 * 1024;
+
 // -- Helpers --------------------------------------------------------
 
 function slugify(text: string) { // can return "" for non-alphanumeric input
@@ -71,6 +81,23 @@ function boolQuery(c: AppContext, key: string): boolean | undefined {
 	const v = c.req.query(key);
 	if (v === undefined || v === "") return undefined;
 	return v === "true" || v === "1";
+}
+
+function percentOf(value: number, quota: number) {
+	if (quota <= 0) return 0;
+	return Math.min(100, Math.round((value / quota) * 10000) / 100);
+}
+
+function subtractMonths(date: Date, months: number) {
+	const copy = new Date(date);
+	copy.setMonth(copy.getMonth() - months);
+	return copy;
+}
+
+function chunk<T>(items: T[], size: number) {
+	const chunks: T[][] = [];
+	for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
+	return chunks;
 }
 
 // -- App & middleware -----------------------------------------------
@@ -131,6 +158,17 @@ async function filterVisibleMailboxes(c: AppContext, mailboxEmails: string[]) {
 	return payload.mailboxEmails ?? [];
 }
 
+async function listMailboxFavorites(env: Env, user: MailboxContext["Variables"]["user"], mailboxEmails: string[]) {
+	const response = await getAdminStub(env).fetch("https://app/mailbox-favorites", {
+		method: "POST",
+		headers: adminHeaders(user),
+		body: JSON.stringify({ userId: user.id, mailboxEmails }),
+	});
+	if (!response.ok) return [];
+	const payload = await response.json() as { favorites?: string[] };
+	return payload.favorites ?? [];
+}
+
 async function notifyMailboxCreated(env: Env, user: MailboxContext["Variables"]["user"], mailboxEmail: string) {
 	await getAdminStub(env).fetch("https://app/mailbox-created", {
 		method: "POST",
@@ -160,6 +198,54 @@ async function createMailboxRecord(env: Env, email: string, name: string, settin
 	const stub = env.MAILBOX.get(env.MAILBOX.idFromName(email));
 	await stub.getFolders();
 	return finalSettings;
+}
+
+async function getStorageQuotaBytes(env: Env, user: MailboxContext["Variables"]["user"]) {
+	const response = await getAdminStub(env).fetch("https://app/storage/quota", {
+		headers: adminHeaders(user),
+	});
+	if (!response.ok) return DEFAULT_STORAGE_QUOTA_BYTES;
+	const payload = await response.json().catch(() => ({})) as { quotaBytes?: number };
+	return typeof payload.quotaBytes === "number" ? payload.quotaBytes : DEFAULT_STORAGE_QUOTA_BYTES;
+}
+
+async function buildStorageUsage(env: Env, user: MailboxContext["Variables"]["user"]) {
+	const quotaBytes = await getStorageQuotaBytes(env, user);
+	const mailboxes = await listMailboxes(env.BUCKET);
+	const mailboxStats = await Promise.all(mailboxes.map(async (mailbox) => {
+		const stub = env.MAILBOX.get(env.MAILBOX.idFromName(mailbox.email));
+		const stats = await (stub as any).getStorageStats() as {
+			databaseSize: number;
+			emailCount: number;
+			attachmentCount: number;
+			attachmentBytes: number;
+			oldestEmailDate: string | null;
+		};
+		return {
+			mailboxId: mailbox.email,
+			...stats,
+			usagePercent: percentOf(stats.databaseSize, quotaBytes),
+		};
+	}));
+	const totalDatabaseSize = mailboxStats.reduce((sum, item) => sum + item.databaseSize, 0);
+	const totalEmailCount = mailboxStats.reduce((sum, item) => sum + item.emailCount, 0);
+	const totalAttachmentCount = mailboxStats.reduce((sum, item) => sum + item.attachmentCount, 0);
+	const totalAttachmentBytes = mailboxStats.reduce((sum, item) => sum + item.attachmentBytes, 0);
+	const highestUsageMailbox = mailboxStats.reduce<typeof mailboxStats[number] | null>((highest, item) => {
+		if (!highest || item.usagePercent > highest.usagePercent) return item;
+		return highest;
+	}, null);
+	return {
+		quotaBytes,
+		totalDatabaseSize,
+		totalEmailCount,
+		totalAttachmentCount,
+		totalAttachmentBytes,
+		mailboxCount: mailboxStats.length,
+		highestUsagePercent: highestUsageMailbox?.usagePercent ?? 0,
+		highestUsageMailbox,
+		mailboxes: mailboxStats.sort((a, b) => b.databaseSize - a.databaseSize),
+	};
 }
 
 app.get("/api/v1/config", async (c) => {
@@ -419,6 +505,90 @@ app.delete("/api/v1/admin/mcp-keys/:id", requireAuth, requireAdmin, async (c) =>
 		headers: adminHeaders(c.var.user),
 	});
 	return c.json(await response.json(), response.status as 200 | 403);
+});
+
+app.get("/api/v1/admin/storage/usage", requireAuth, requireAdmin, async (c) => {
+	return c.json(await buildStorageUsage(c.env, c.var.user));
+});
+
+app.put("/api/v1/admin/storage/quota", requireAuth, requireAdmin, async (c) => {
+	const body = StorageQuotaBody.parse(await c.req.json());
+	const response = await getAdminStub(c.env).fetch("https://app/storage/quota", {
+		method: "PUT",
+		headers: adminHeaders(c.var.user),
+		body: JSON.stringify(body),
+	});
+	if (!response.ok) return c.json(await response.json(), response.status as 400 | 403);
+	return c.json(await buildStorageUsage(c.env, c.var.user));
+});
+
+app.post("/api/v1/admin/storage/cleanup", requireAuth, requireAdmin, async (c) => {
+	const { months } = StorageCleanupBody.parse(await c.req.json());
+	const cutoffIso = subtractMonths(new Date(), months).toISOString();
+	const before = await buildStorageUsage(c.env, c.var.user);
+	let deletedEmailCount = 0;
+	let deletedAttachmentCount = 0;
+	let r2DeleteFailureCount = 0;
+	const failedMailboxes: string[] = [];
+
+	for (const mailbox of before.mailboxes) {
+		const stub = c.env.MAILBOX.get(c.env.MAILBOX.idFromName(mailbox.mailboxId));
+		try {
+			const result = await (stub as any).cleanupEmailsBefore(cutoffIso) as {
+				deletedEmailCount: number;
+				deletedAttachmentCount: number;
+				attachmentKeys: string[];
+			};
+			deletedEmailCount += result.deletedEmailCount;
+			deletedAttachmentCount += result.deletedAttachmentCount;
+			for (const keys of chunk(result.attachmentKeys, 1000)) {
+				try {
+					if (keys.length > 0) await c.env.BUCKET.delete(keys);
+				} catch {
+					r2DeleteFailureCount += keys.length;
+					failedMailboxes.push(mailbox.mailboxId);
+				}
+			}
+		} catch {
+			failedMailboxes.push(mailbox.mailboxId);
+		}
+	}
+
+	const after = await buildStorageUsage(c.env, c.var.user);
+	return c.json({
+		months,
+		cutoffIso,
+		processedMailboxCount: before.mailboxCount,
+		deletedEmailCount,
+		deletedAttachmentCount,
+		r2DeleteFailureCount,
+		failedMailboxes: [...new Set(failedMailboxes)],
+		before: {
+			totalDatabaseSize: before.totalDatabaseSize,
+			highestUsagePercent: before.highestUsagePercent,
+		},
+		after,
+	});
+});
+
+app.get("/api/v1/mailbox-favorites", requireAuth, async (c) => {
+	const allMailboxes = await listMailboxes(c.env.BUCKET);
+	return c.json({ favorites: await listMailboxFavorites(c.env, c.var.user, allMailboxes.map((mailbox) => mailbox.email)) });
+});
+
+app.put("/api/v1/mailbox-favorites/:mailboxId", requireAuth, async (c) => {
+	const mailboxId = c.req.param("mailboxId")!.toLowerCase();
+	if (!(await c.env.BUCKET.head(`mailboxes/${mailboxId}.json`))) return c.json({ error: "Not found" }, 404);
+	const denied = await assertMailboxAccess(c as AppContext, mailboxId);
+	if (denied) return denied;
+	const body = await c.req.json().catch(() => ({})) as { favorited?: unknown };
+	if (typeof body.favorited !== "boolean") return c.json({ error: "favorited must be a boolean" }, 400);
+	const response = await getAdminStub(c.env).fetch("https://app/mailbox-favorites", {
+		method: "PUT",
+		headers: adminHeaders(c.var.user),
+		body: JSON.stringify({ userId: c.var.user.id, mailboxEmail: mailboxId, favorited: body.favorited }),
+	});
+	return c.json(await response.json(), response.status as 200 | 400 | 403);
 });
 
 // -- Mailboxes ------------------------------------------------------

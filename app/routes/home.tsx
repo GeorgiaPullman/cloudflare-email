@@ -13,20 +13,23 @@ import {
 	Text,
 	useKumoToastManager,
 } from "@cloudflare/kumo";
-import { EnvelopeIcon, PlusIcon, SignOutIcon, TrashIcon } from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
-import { type FormEvent, useEffect, useState } from "react";
+import { DatabaseIcon, EnvelopeIcon, PlusIcon, SignOutIcon, StarIcon, TrashIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { Link as RouterLink } from "react-router";
 import { AdminTabs } from "~/components/AdminTabs";
+import { useCleanupStorage, useStorageUsage, useUpdateStorageQuota } from "~/queries/admin";
 import { useBootstrapAdmin, useLogin, useLogout, useSession } from "~/queries/auth";
 import api from "~/services/api";
 import {
 	useCreateMailbox,
 	useDeleteMailbox,
+	useMailboxFavorites,
 	useMailboxes,
+	useUpdateMailboxFavorite,
 } from "~/queries/mailboxes";
 import { queryKeys } from "~/queries/keys";
-import type { UserRole } from "~/types";
+import type { StorageUsage, UserRole } from "~/types";
 
 export function meta() {
 	return [{ title: "Mailflare" }];
@@ -35,6 +38,8 @@ export function meta() {
 const EMAIL_ROUTING_GUIDE_IMAGE = "/email-route.png";
 const EMAIL_SENDING_GUIDE_IMAGE = "/email-send.png";
 const API_TOKEN_GUIDE_IMAGE = "/api-token.png";
+const MAILBOX_DOMAIN_FILTER_KEY = "mailflare:mailbox-domain-filter";
+const DEFAULT_CLEANUP_MONTHS = 6;
 
 function MoreActionsIcon() {
 	return (
@@ -95,6 +100,165 @@ function isAdminRole(role?: UserRole) {
 	return role === "primary_admin" || role === "admin";
 }
 
+function getMailboxDomain(email: string) {
+	return email.split("@")[1]?.toLowerCase() || "";
+}
+
+function readStoredDomainFilter() {
+	if (typeof window === "undefined") return "all";
+	return window.localStorage.getItem(MAILBOX_DOMAIN_FILTER_KEY) || "all";
+}
+
+function formatBytes(bytes: number) {
+	if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+	const units = ["B", "KB", "MB", "GB", "TB"];
+	let value = bytes;
+	let unit = 0;
+	while (value >= 1024 && unit < units.length - 1) {
+		value /= 1024;
+		unit += 1;
+	}
+	return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
+}
+
+function quotaLabel(bytes: number) {
+	return bytes >= 10 * 1024 * 1024 * 1024 ? "10GB Paid" : "1GB Free";
+}
+
+function StorageUsagePanel({
+	enabled,
+}: {
+	enabled: boolean;
+}) {
+	const toast = useKumoToastManager();
+	const queryClient = useQueryClient();
+	const { data: usage, isLoading } = useStorageUsage(enabled);
+	const updateQuota = useUpdateStorageQuota();
+	const cleanupStorage = useCleanupStorage();
+	const [months, setMonths] = useState(String(DEFAULT_CLEANUP_MONTHS));
+	const isDanger = (usage?.highestUsagePercent ?? 0) >= 80;
+
+	if (!enabled) return null;
+
+	const handleQuotaChange = async (value: string | null) => {
+		if (!value) return;
+		try {
+			await updateQuota.mutateAsync(Number(value));
+			toast.add({ title: "Storage quota baseline updated" });
+		} catch (error) {
+			toast.add({ title: error instanceof Error ? error.message : "Failed to update storage quota", variant: "error" });
+		}
+	};
+
+	const handleCleanup = async () => {
+		const monthCount = Number(months);
+		const confirmed = window.confirm(`This will permanently delete all emails and attachments older than ${monthCount} month(s) from every mailbox. This cannot be undone. Continue?`);
+		if (!confirmed) return;
+		try {
+			const result = await cleanupStorage.mutateAsync(monthCount);
+			queryClient.setQueryData(queryKeys.admin.storageUsage, result.after);
+			const warning = result.r2DeleteFailureCount > 0
+				? ` ${result.r2DeleteFailureCount} attachment file(s) could not be deleted from R2.`
+				: "";
+			toast.add({ title: `Deleted ${result.deletedEmailCount} email(s) and ${result.deletedAttachmentCount} attachment(s).${warning}` });
+		} catch (error) {
+			toast.add({ title: error instanceof Error ? error.message : "Failed to clean storage", variant: "error" });
+		}
+	};
+
+	return (
+		<div className={`mb-6 rounded-xl border p-5 ${
+			isDanger ? "border-red-300 bg-red-50" : "border-kumo-line bg-kumo-base"
+		}`}>
+			<div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+				<div>
+					<div className={`flex items-center gap-2 text-sm font-semibold ${isDanger ? "text-red-700" : "text-kumo-default"}`}>
+						{isDanger ? <WarningCircleIcon size={18} weight="fill" /> : <DatabaseIcon size={18} />}
+						Database usage
+					</div>
+					<p className={`mt-1 text-sm ${isDanger ? "text-red-700" : "text-kumo-subtle"}`}>
+						SQLite-backed Durable Object usage per mailbox. R2 attachments are shown separately.
+					</p>
+				</div>
+				<div className="w-full md:w-48">
+					<span className="mb-1.5 block text-xs font-medium text-kumo-subtle">Quota baseline</span>
+					<Select
+						value={String(usage?.quotaBytes ?? 1024 * 1024 * 1024)}
+						onValueChange={handleQuotaChange}
+					>
+						<Select.Option value={String(1024 * 1024 * 1024)}>1GB Free</Select.Option>
+						<Select.Option value={String(10 * 1024 * 1024 * 1024)}>10GB Paid</Select.Option>
+					</Select>
+				</div>
+			</div>
+
+			{isLoading || !usage ? (
+				<div className="py-6"><Loader size="sm" /></div>
+			) : (
+				<>
+					{isDanger && (
+						<div className="mt-5 rounded-lg bg-red-100 p-4 text-red-800">
+							<div className="text-3xl font-bold">{usage.highestUsagePercent}%</div>
+							<div className="mt-1 text-sm font-medium">
+								{usage.highestUsageMailbox?.mailboxId || "A mailbox"} is close to the {quotaLabel(usage.quotaBytes)} database limit.
+							</div>
+						</div>
+					)}
+					<div className="mt-5 grid gap-3 md:grid-cols-4">
+						<StorageMetric label="Total database" value={formatBytes(usage.totalDatabaseSize)} />
+						<StorageMetric label="Highest mailbox" value={`${usage.highestUsagePercent}%`} danger={isDanger} />
+						<StorageMetric label="Mailboxes" value={String(usage.mailboxCount)} />
+						<StorageMetric label="R2 attachments" value={formatBytes(usage.totalAttachmentBytes)} />
+					</div>
+					<div className="mt-5 flex flex-col gap-3 rounded-lg border border-kumo-line bg-kumo-recessed p-4 md:flex-row md:items-end md:justify-between">
+						<div className="max-w-md">
+							<div className="text-sm font-medium text-kumo-default">Clean old data</div>
+							<p className="mt-1 text-xs text-kumo-subtle">
+								Permanently delete emails and R2 attachments older than the selected age from all mailboxes.
+							</p>
+						</div>
+						<div className="flex items-end gap-2">
+							<div className="w-32">
+								<span className="mb-1.5 block text-xs font-medium text-kumo-subtle">Older than</span>
+								<Select value={months} onValueChange={(value) => value && setMonths(value)}>
+									{Array.from({ length: 24 }, (_, index) => String(index + 1)).map((value) => (
+										<Select.Option key={value} value={value}>{value} months</Select.Option>
+									))}
+								</Select>
+							</div>
+							<Button
+								variant="destructive"
+								onClick={handleCleanup}
+								loading={cleanupStorage.isPending}
+								disabled={usage.mailboxCount === 0}
+							>
+								Clean
+							</Button>
+						</div>
+					</div>
+				</>
+			)}
+		</div>
+	);
+}
+
+function StorageMetric({
+	label,
+	value,
+	danger = false,
+}: {
+	label: string;
+	value: string;
+	danger?: boolean;
+}) {
+	return (
+		<div className="rounded-lg border border-kumo-line bg-kumo-base p-3">
+			<div className="text-xs text-kumo-subtle">{label}</div>
+			<div className={`mt-1 text-lg font-semibold ${danger ? "text-red-700" : "text-kumo-default"}`}>{value}</div>
+		</div>
+	);
+}
+
 export default function HomeRoute() {
 	const toastManager = useKumoToastManager();
 	const { data: configData, isLoading: isConfigLoading } = useQuery({
@@ -103,8 +267,10 @@ export default function HomeRoute() {
 	});
 	const { data: session, isLoading: isSessionLoading } = useSession();
 	const { data: mailboxes = [] } = useMailboxes();
+	const { data: favoriteMailboxes = [] } = useMailboxFavorites();
 	const createMailbox = useCreateMailbox();
 	const deleteMailbox = useDeleteMailbox();
+	const updateFavorite = useUpdateMailboxFavorite();
 	const logout = useLogout();
 
 	const domains = configData?.availableDomains ?? [];
@@ -119,10 +285,33 @@ export default function HomeRoute() {
 	const [isDeleteOpen, setIsDeleteOpen] = useState(false);
 	const [mailboxToDelete, setMailboxToDelete] = useState<{ id: string; email: string } | null>(null);
 	const [isDeleting, setIsDeleting] = useState(false);
+	const [domainFilter, setDomainFilter] = useState(readStoredDomainFilter);
+
+	const mailboxDomains = useMemo(() => {
+		return [...new Set(mailboxes.map((mailbox) => getMailboxDomain(mailbox.email)).filter(Boolean))].sort();
+	}, [mailboxes]);
+	const favoriteSet = useMemo(() => new Set(favoriteMailboxes.map((email) => email.toLowerCase())), [favoriteMailboxes]);
+	const domainTabs = useMemo(() => ["all", "favorites", ...mailboxDomains], [mailboxDomains]);
+	const filteredMailboxes = domainFilter === "favorites"
+		? mailboxes.filter((mailbox) => favoriteSet.has(mailbox.email.toLowerCase()))
+		: domainFilter === "all"
+		? mailboxes
+		: mailboxes.filter((mailbox) => getMailboxDomain(mailbox.email) === domainFilter);
 
 	useEffect(() => {
 		if (domains.length > 0 && !selectedDomain) setSelectedDomain(domains[0]);
 	}, [domains, selectedDomain]);
+
+	useEffect(() => {
+		if (domainFilter === "all" || domainFilter === "favorites") return;
+		if (!mailboxDomains.includes(domainFilter)) setDomainFilter("all");
+	}, [domainFilter, mailboxDomains]);
+
+	useEffect(() => {
+		if (typeof window !== "undefined") {
+			window.localStorage.setItem(MAILBOX_DOMAIN_FILTER_KEY, domainFilter);
+		}
+	}, [domainFilter]);
 
 	if (isConfigLoading || isSessionLoading) {
 		return <div className="flex justify-center py-20"><Loader size="lg" /></div>;
@@ -168,6 +357,18 @@ export default function HomeRoute() {
 			toastManager.add({ title: "Failed to delete mailbox", variant: "error" });
 		} finally {
 			setIsDeleting(false);
+		}
+	};
+
+	const toggleFavorite = async (mailboxId: string) => {
+		const normalized = mailboxId.toLowerCase();
+		try {
+			await updateFavorite.mutateAsync({
+				mailboxId: normalized,
+				favorited: !favoriteSet.has(normalized),
+			});
+		} catch (error) {
+			toastManager.add({ title: error instanceof Error ? error.message : "Failed to update favorite", variant: "error" });
 		}
 	};
 
@@ -231,9 +432,33 @@ export default function HomeRoute() {
 					)}
 				</div>
 
-				{mailboxes.length > 0 ? (
+				<StorageUsagePanel enabled={canManageMailboxes} />
+
+				{mailboxes.length > 0 && (
+					<div className="mb-8 flex flex-wrap gap-x-8 gap-y-3">
+						{domainTabs.map((domain) => {
+							const active = domainFilter === domain;
+							return (
+								<button
+									key={domain}
+									type="button"
+									onClick={() => setDomainFilter(domain)}
+									className={`border-b-2 bg-transparent pb-1 text-sm font-semibold transition-colors ${
+										active
+											? "border-kumo-brand text-kumo-default"
+											: "border-transparent text-kumo-subtle hover:border-kumo-line hover:text-kumo-default"
+									}`}
+								>
+									{domain === "all" ? "All" : domain === "favorites" ? "Favorites" : domain}
+								</button>
+							);
+						})}
+					</div>
+				)}
+
+				{mailboxes.length > 0 && filteredMailboxes.length > 0 ? (
 					<div className="rounded-xl border border-kumo-line bg-kumo-base overflow-hidden">
-						{mailboxes.map((account, idx) => (
+						{filteredMailboxes.map((account, idx) => (
 							<RouterLink
 								key={account.id}
 								to={`/mailbox/${account.id}`}
@@ -252,6 +477,19 @@ export default function HomeRoute() {
 										{account.email}
 									</div>
 								</div>
+								<Button
+									variant="ghost"
+									size="sm"
+									shape="square"
+									icon={<StarIcon size={17} weight={favoriteSet.has(account.email.toLowerCase()) ? "fill" : "regular"} />}
+									aria-label={`${favoriteSet.has(account.email.toLowerCase()) ? "Remove from" : "Add to"} favorites ${account.email}`}
+									className={favoriteSet.has(account.email.toLowerCase()) ? "text-amber-500 hover:text-amber-600" : "text-kumo-subtle hover:text-amber-500"}
+									onClick={(e) => {
+										e.preventDefault();
+										e.stopPropagation();
+										void toggleFavorite(account.email);
+									}}
+								/>
 								{canManageMailboxes && (
 									<Button
 										variant="ghost"
@@ -274,13 +512,23 @@ export default function HomeRoute() {
 					<div className="rounded-xl border border-kumo-line bg-kumo-base py-16 px-6">
 						<div className="flex flex-col items-center text-center">
 							<EnvelopeIcon size={48} weight="thin" className="text-kumo-subtle mb-4" />
-							<h3 className="text-base font-semibold text-kumo-default mb-1.5">No mailboxes yet</h3>
+							<h3 className="text-base font-semibold text-kumo-default mb-1.5">
+								{mailboxes.length > 0
+									? domainFilter === "favorites"
+										? "No favorite mailboxes yet"
+										: "No mailboxes for this domain"
+									: "No mailboxes yet"}
+							</h3>
 							<p className="text-sm text-kumo-subtle max-w-sm mb-5">
-								{domains.length > 0
+								{mailboxes.length > 0
+									? domainFilter === "favorites"
+										? "Star mailboxes from the list to keep them here."
+										: "Choose another domain tab or switch back to All."
+									: domains.length > 0
 									? "Create a mailbox to start sending and receiving emails."
 									: "Add an active domain before creating mailboxes."}
 							</p>
-							{canManageMailboxes && (
+							{canManageMailboxes && mailboxes.length === 0 && (
 								<Button variant="primary" icon={<PlusIcon size={16} />} onClick={() => setIsCreateOpen(true)} disabled={domains.length === 0}>
 									Create Mailbox
 								</Button>
