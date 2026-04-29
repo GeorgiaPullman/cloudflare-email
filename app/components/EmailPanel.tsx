@@ -16,8 +16,13 @@ import api from "~/services/api";
 import { useDeleteEmail, useEmail, useMoveEmail, useReplyToEmail, useSendEmail, useThreadReplies, useUpdateEmail } from "~/queries/emails";
 import { useFolders } from "~/queries/folders";
 import { useMailbox } from "~/queries/mailboxes";
+import { useSession } from "~/queries/auth";
 import { useUIStore } from "~/hooks/useUIStore";
 import type { Email, Folder, Mailbox } from "~/types";
+
+function isAdminRole(role?: string) {
+	return role === "primary_admin" || role === "admin";
+}
 
 function EmailPanelSkeleton() {
 	return (
@@ -44,6 +49,7 @@ export default function EmailPanel({ emailId }: { emailId: string }) {
 	const { data: currentMailbox } = useMailbox(mailboxId) as {
 		data?: Mailbox;
 	};
+	const { data: session } = useSession();
 	const { closePanel, startCompose } = useUIStore();
 	const toastManager = useKumoToastManager();
 	const [isSending, setIsSending] = useState(false);
@@ -51,6 +57,7 @@ export default function EmailPanel({ emailId }: { emailId: string }) {
 	const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
 	const [previewImage, setPreviewImage] = useState<{ url: string; filename: string } | null>(null);
 	const isDraftFolder = folder === Folders.DRAFT;
+	const canDeleteEmail = isAdminRole(session?.user.role) || isDraftFolder;
 
 	const threadReplies = useMemo(() => {
 		if (!threadRepliesRaw || !email) return [];
@@ -173,6 +180,7 @@ export default function EmailPanel({ emailId }: { emailId: string }) {
 				onMove={handleMove}
 				onViewSource={() => setSourceViewEmail(email)}
 				onDelete={handleDelete}
+				canDelete={canDeleteEmail}
 			/>
 
 			<EmailPanelHeader

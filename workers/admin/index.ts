@@ -12,6 +12,7 @@ const HASH_ALGORITHM = "SHA-256";
 type DomainSource = "manual" | "cloudflare_discovered";
 type DomainStatus = "active" | "disabled";
 type KeyStatus = "active" | "disabled";
+type AssignmentSource = "manual" | "auto_username";
 
 interface UserRow {
 	id: string;
@@ -46,6 +47,14 @@ interface ApiKeyRow {
 	last_used_at: string | null;
 }
 
+interface MailboxAssignmentRow {
+	user_id: string;
+	mailbox_email: string;
+	source: AssignmentSource;
+	created_at: string;
+	created_by: string | null;
+}
+
 function json(data: unknown, init?: ResponseInit) {
 	return new Response(JSON.stringify(data), {
 		...init,
@@ -62,6 +71,26 @@ function normalizeUsername(username: string) {
 
 function normalizeDomain(domain: string) {
 	return domain.trim().toLowerCase().replace(/^@+/, "");
+}
+
+function normalizeEmail(email: string) {
+	return email.trim().toLowerCase();
+}
+
+function isAdminRole(role: UserRole) {
+	return role === "primary_admin" || role === "admin";
+}
+
+function isValidRole(role: string): role is UserRole {
+	return role === "primary_admin" || role === "admin" || role === "employee";
+}
+
+function isValidUsername(username: string) {
+	return /^[a-z0-9][a-z0-9._-]{0,62}$/.test(username);
+}
+
+function localPart(email: string) {
+	return email.split("@")[0] || "";
 }
 
 function randomToken(bytes = 32) {
@@ -177,6 +206,15 @@ function keyPublic(row: ApiKeyRow) {
 	};
 }
 
+function assignmentPublic(row: MailboxAssignmentRow, exists: boolean) {
+	return {
+		email: row.mailbox_email,
+		source: row.source,
+		assigned: true,
+		exists,
+	};
+}
+
 export class AppAdminDO extends DurableObject<Env> {
 	constructor(state: DurableObjectState, env: Env) {
 		super(state, env);
@@ -190,7 +228,7 @@ export class AppAdminDO extends DurableObject<Env> {
 					id TEXT PRIMARY KEY,
 					username TEXT NOT NULL UNIQUE,
 					password_hash TEXT NOT NULL,
-					role TEXT NOT NULL CHECK(role IN ('admin', 'employee')),
+					role TEXT NOT NULL CHECK(role IN ('primary_admin', 'admin', 'employee')),
 					status TEXT NOT NULL CHECK(status IN ('active', 'disabled')),
 					created_at TEXT NOT NULL,
 					updated_at TEXT NOT NULL,
@@ -237,6 +275,54 @@ export class AppAdminDO extends DurableObject<Env> {
 				CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 				CREATE INDEX IF NOT EXISTS idx_domain_sources_status ON domain_sources(status);
 			`);
+
+			const userTable = [...this.ctx.storage.sql.exec("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users' LIMIT 1")][0] as { sql?: string } | undefined;
+			if (userTable?.sql && !userTable.sql.includes("primary_admin")) {
+				this.ctx.storage.sql.exec("DROP TABLE IF EXISTS users_new_role");
+				this.ctx.storage.sql.exec(`
+					CREATE TABLE users_new_role (
+						id TEXT PRIMARY KEY,
+						username TEXT NOT NULL UNIQUE,
+						password_hash TEXT NOT NULL,
+						role TEXT NOT NULL CHECK(role IN ('primary_admin', 'admin', 'employee')),
+						status TEXT NOT NULL CHECK(status IN ('active', 'disabled')),
+						created_at TEXT NOT NULL,
+						updated_at TEXT NOT NULL,
+						last_login_at TEXT
+					)
+				`);
+				this.ctx.storage.sql.exec(`
+					INSERT INTO users_new_role (id, username, password_hash, role, status, created_at, updated_at, last_login_at)
+					SELECT id, username, password_hash, role, status, created_at, updated_at, last_login_at
+					FROM users
+				`);
+				this.ctx.storage.sql.exec("DROP TABLE users");
+				this.ctx.storage.sql.exec("ALTER TABLE users_new_role RENAME TO users");
+			}
+
+			const primary = [...this.ctx.storage.sql.exec("SELECT id FROM users WHERE role = 'primary_admin' LIMIT 1")][0] as { id: string } | undefined;
+			if (!primary) {
+				const firstAdmin = [...this.ctx.storage.sql.exec(
+					"SELECT id FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1",
+				)][0] as { id: string } | undefined;
+				if (firstAdmin) {
+					this.ctx.storage.sql.exec("UPDATE users SET role = 'primary_admin', updated_at = ? WHERE id = ?", new Date().toISOString(), firstAdmin.id);
+				}
+			}
+
+			this.ctx.storage.sql.exec(`
+				CREATE TABLE IF NOT EXISTS mailbox_assignments (
+					user_id TEXT NOT NULL,
+					mailbox_email TEXT NOT NULL,
+					source TEXT NOT NULL CHECK(source IN ('manual', 'auto_username')),
+					created_at TEXT NOT NULL,
+					created_by TEXT,
+					PRIMARY KEY(user_id, mailbox_email),
+					FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+				);
+
+				CREATE INDEX IF NOT EXISTS idx_mailbox_assignments_email ON mailbox_assignments(mailbox_email);
+			`);
 		});
 	}
 
@@ -250,6 +336,10 @@ export class AppAdminDO extends DurableObject<Env> {
 
 	private getUserById(id: string) {
 		return [...this.ctx.storage.sql.exec("SELECT * FROM users WHERE id = ? LIMIT 1", id)][0] as unknown as UserRow | undefined;
+	}
+
+	private listUsers() {
+		return [...this.ctx.storage.sql.exec("SELECT * FROM users ORDER BY created_at ASC")] as unknown as UserRow[];
 	}
 
 	private getSetting(key: string) {
@@ -292,6 +382,55 @@ export class AppAdminDO extends DurableObject<Env> {
 			"SELECT * FROM domain_sources WHERE status = 'active' ORDER BY domain ASC",
 		)] as unknown as DomainRow[];
 		return rows.map((row) => row.domain);
+	}
+
+	private listAssignments(userId: string) {
+		return [...this.ctx.storage.sql.exec(
+			"SELECT * FROM mailbox_assignments WHERE user_id = ? ORDER BY mailbox_email ASC",
+			userId,
+		)] as unknown as MailboxAssignmentRow[];
+	}
+
+	private assignMailbox(userId: string, mailboxEmail: string, source: AssignmentSource, createdBy: string | null) {
+		const email = normalizeEmail(mailboxEmail);
+		if (!email) return;
+		this.ctx.storage.sql.exec(
+			`INSERT INTO mailbox_assignments (user_id, mailbox_email, source, created_at, created_by)
+			 VALUES (?, ?, ?, ?, ?)
+			 ON CONFLICT(user_id, mailbox_email) DO UPDATE SET
+				source = CASE WHEN mailbox_assignments.source = 'auto_username' THEN mailbox_assignments.source ELSE excluded.source END,
+				created_by = COALESCE(mailbox_assignments.created_by, excluded.created_by)`,
+			userId,
+			email,
+			source,
+			new Date().toISOString(),
+			createdBy,
+		);
+	}
+
+	private canAccessMailbox(user: AuthUser, mailboxEmail: string) {
+		if (isAdminRole(user.role)) return true;
+		const email = normalizeEmail(mailboxEmail);
+		if (localPart(email) === user.username) return true;
+		const row = [...this.ctx.storage.sql.exec(
+			"SELECT 1 FROM mailbox_assignments WHERE user_id = ? AND mailbox_email = ? LIMIT 1",
+			user.id,
+			email,
+		)][0];
+		return !!row;
+	}
+
+	private assertCanMutateUser(actor: UserRow, target: UserRow, action: "status" | "role" | "reset") {
+		if (!isAdminRole(actor.role)) return "Forbidden";
+		if (action === "status" && actor.id === target.id) return "You cannot change your own status";
+		if (target.role === "primary_admin") {
+			if (action === "reset" && actor.role === "primary_admin") return null;
+			return "The primary administrator is protected";
+		}
+		if (actor.role === "admin" && target.role === "admin") {
+			return "Only the primary administrator can modify another administrator";
+		}
+		return null;
 	}
 
 	private async syncCloudflareDomains() {
@@ -388,7 +527,7 @@ export class AppAdminDO extends DurableObject<Env> {
 			const now = new Date().toISOString();
 			const id = crypto.randomUUID();
 			this.ctx.storage.sql.exec(
-				"INSERT INTO users (id, username, password_hash, role, status, created_at, updated_at) VALUES (?, ?, ?, 'admin', 'active', ?, ?)",
+				"INSERT INTO users (id, username, password_hash, role, status, created_at, updated_at) VALUES (?, ?, ?, 'primary_admin', 'active', ?, ?)",
 				id,
 				username,
 				await hashPassword(password),
@@ -461,21 +600,59 @@ export class AppAdminDO extends DurableObject<Env> {
 				availableDomains: await this.listAvailableDomains(),
 				isInitialized: !!this.firstUser(),
 				authMode: "local",
-				canManageDomains: actor.role === "admin",
+				canManageDomains: isAdminRole(actor.role),
 			});
 		}
 
+		if (url.pathname === "/mailbox-access" && method === "POST") {
+			const { userId, mailboxEmail } = body as { userId?: string; mailboxEmail?: string };
+			const user = userId ? this.getUserById(userId) : undefined;
+			if (!user || !mailboxEmail) return json({ allowed: false }, { status: 400 });
+			return json({ allowed: this.canAccessMailbox(userPublic(user), mailboxEmail) });
+		}
+
+		if (url.pathname === "/visible-mailboxes" && method === "POST") {
+			const { userId, mailboxEmails = [] } = body as { userId?: string; mailboxEmails?: string[] };
+			const user = userId ? this.getUserById(userId) : undefined;
+			if (!user) return json({ mailboxEmails: [] }, { status: 400 });
+			if (isAdminRole(user.role)) return json({ mailboxEmails: mailboxEmails.map(normalizeEmail) });
+			const visible = mailboxEmails
+				.map(normalizeEmail)
+				.filter((email) => this.canAccessMailbox(userPublic(user), email));
+			return json({ mailboxEmails: visible });
+		}
+
+		if (url.pathname === "/mailbox-created" && method === "POST") {
+			const { mailboxEmail } = body as { mailboxEmail?: string };
+			const email = normalizeEmail(mailboxEmail || "");
+			if (!email) return json({ ok: false }, { status: 400 });
+			const username = localPart(email);
+			const user = username ? this.getUserByUsername(username) : undefined;
+			if (user?.role === "employee") this.assignMailbox(user.id, email, "auto_username", null);
+			return json({ ok: true });
+		}
+
+		if (url.pathname === "/mailbox-deleted" && method === "POST") {
+			const { mailboxEmail } = body as { mailboxEmail?: string };
+			const email = normalizeEmail(mailboxEmail || "");
+			if (!email) return json({ ok: false }, { status: 400 });
+			this.ctx.storage.sql.exec("DELETE FROM mailbox_assignments WHERE mailbox_email = ?", email);
+			return json({ ok: true });
+		}
+
 		if (url.pathname === "/users" && method === "GET") {
-			if (actor.role !== "admin") return json({ error: "Forbidden" }, { status: 403 });
-			const rows = [...this.ctx.storage.sql.exec("SELECT * FROM users ORDER BY created_at ASC")] as unknown as UserRow[];
+			if (!isAdminRole(actor.role)) return json({ error: "Forbidden" }, { status: 403 });
+			const rows = this.listUsers();
 			return json(rows.map(userPublic));
 		}
 
 		if (url.pathname === "/users" && method === "POST") {
-			if (actor.role !== "admin") return json({ error: "Forbidden" }, { status: 403 });
-			const { username: rawUsername, role = "employee" } = body as { username?: string; role?: UserRole };
+			if (!isAdminRole(actor.role)) return json({ error: "Forbidden" }, { status: 403 });
+			const { username: rawUsername, role = "employee" } = body as { username?: string; role?: UserRole; mailboxEmails?: string[] };
 			const username = normalizeUsername(rawUsername || "");
-			if (!username || !["admin", "employee"].includes(role)) return json({ error: "Valid username and role are required" }, { status: 400 });
+			if (!username || !isValidUsername(username) || role === "primary_admin" || !["admin", "employee"].includes(role)) {
+				return json({ error: "Valid username and role are required" }, { status: 400 });
+			}
 			if (this.getUserByUsername(username)) return json({ error: "Username already exists" }, { status: 409 });
 			const password = randomPassword();
 			const now = new Date().toISOString();
@@ -494,31 +671,78 @@ export class AppAdminDO extends DurableObject<Env> {
 
 		const userStatusMatch = url.pathname.match(/^\/users\/([^/]+)\/status$/);
 		if (userStatusMatch && method === "POST") {
-			if (actor.role !== "admin") return json({ error: "Forbidden" }, { status: 403 });
+			if (!isAdminRole(actor.role)) return json({ error: "Forbidden" }, { status: 403 });
 			const { status } = body as { status?: UserStatus };
 			if (!["active", "disabled"].includes(status || "")) return json({ error: "Invalid status" }, { status: 400 });
-			this.ctx.storage.sql.exec("UPDATE users SET status = ?, updated_at = ? WHERE id = ?", status, new Date().toISOString(), userStatusMatch[1]);
-			return json({ user: userPublic(this.getUserById(userStatusMatch[1])!) });
+			const target = this.getUserById(userStatusMatch[1]);
+			if (!target) return json({ error: "User not found" }, { status: 404 });
+			const denied = this.assertCanMutateUser(actor, target, "status");
+			if (denied) return json({ error: denied }, { status: 403 });
+			this.ctx.storage.sql.exec("UPDATE users SET status = ?, updated_at = ? WHERE id = ?", status, new Date().toISOString(), target.id);
+			return json({ user: userPublic(this.getUserById(target.id)!) });
+		}
+
+		const roleMatch = url.pathname.match(/^\/users\/([^/]+)\/role$/);
+		if (roleMatch && method === "POST") {
+			if (!isAdminRole(actor.role)) return json({ error: "Forbidden" }, { status: 403 });
+			const { role } = body as { role?: UserRole };
+			if (!role || role === "primary_admin" || !isValidRole(role)) return json({ error: "Invalid role" }, { status: 400 });
+			const target = this.getUserById(roleMatch[1]);
+			if (!target) return json({ error: "User not found" }, { status: 404 });
+			const denied = this.assertCanMutateUser(actor, target, "role");
+			if (denied) return json({ error: denied }, { status: 403 });
+			this.ctx.storage.sql.exec("UPDATE users SET role = ?, updated_at = ? WHERE id = ?", role, new Date().toISOString(), target.id);
+			return json({ user: userPublic(this.getUserById(target.id)!) });
 		}
 
 		const resetMatch = url.pathname.match(/^\/users\/([^/]+)\/reset-password$/);
 		if (resetMatch && method === "POST") {
-			if (actor.role !== "admin") return json({ error: "Forbidden" }, { status: 403 });
+			if (!isAdminRole(actor.role)) return json({ error: "Forbidden" }, { status: 403 });
 			const user = this.getUserById(resetMatch[1]);
 			if (!user) return json({ error: "User not found" }, { status: 404 });
+			const denied = this.assertCanMutateUser(actor, user, "reset");
+			if (denied) return json({ error: denied }, { status: 403 });
 			const password = randomPassword();
 			this.ctx.storage.sql.exec("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?", await hashPassword(password), new Date().toISOString(), user.id);
 			return json({ user: userPublic(this.getUserById(user.id)!), password });
 		}
 
+		const userMailboxesMatch = url.pathname.match(/^\/users\/([^/]+)\/mailboxes$/);
+		if (userMailboxesMatch && method === "GET") {
+			if (!isAdminRole(actor.role)) return json({ error: "Forbidden" }, { status: 403 });
+			const user = this.getUserById(userMailboxesMatch[1]);
+			if (!user) return json({ error: "User not found" }, { status: 404 });
+			const assignedRows = this.listAssignments(user.id);
+			const mailboxes = await Promise.all(assignedRows.map(async (row) =>
+				assignmentPublic(row, !!(await this.env.BUCKET.head(`mailboxes/${row.mailbox_email}.json`))),
+			));
+			return json({ user: userPublic(user), mailboxes });
+		}
+
+		if (userMailboxesMatch && method === "PUT") {
+			if (!isAdminRole(actor.role)) return json({ error: "Forbidden" }, { status: 403 });
+			const user = this.getUserById(userMailboxesMatch[1]);
+			if (!user) return json({ error: "User not found" }, { status: 404 });
+			if (user.role !== "employee") return json({ error: "Mailbox assignments are only available for employees" }, { status: 400 });
+			const { mailboxEmails = [] } = body as { mailboxEmails?: string[] };
+			const normalized = [...new Set(mailboxEmails.map(normalizeEmail).filter((email) => email.includes("@")))];
+			this.ctx.storage.sql.exec("DELETE FROM mailbox_assignments WHERE user_id = ? AND source = 'manual'", user.id);
+			for (const email of normalized) {
+				if (await this.env.BUCKET.head(`mailboxes/${email}.json`)) {
+					this.assignMailbox(user.id, email, "manual", actor.id);
+				}
+			}
+			return json({ mailboxes: this.listAssignments(user.id).map((row) => assignmentPublic(row, true)) });
+		}
+
 		if (url.pathname === "/domains" && method === "GET") {
-			if (actor.role !== "admin") return json({ error: "Forbidden" }, { status: 403 });
+			if (!isAdminRole(actor.role)) return json({ error: "Forbidden" }, { status: 403 });
 			const rows = [...this.ctx.storage.sql.exec("SELECT * FROM domain_sources ORDER BY domain ASC")] as unknown as DomainRow[];
 			return json(rows.map(domainPublic));
 		}
 
 		if (url.pathname === "/domains" && method === "POST") {
-			if (actor.role !== "admin") return json({ error: "Forbidden" }, { status: 403 });
+			if (!isAdminRole(actor.role)) return json({ error: "Forbidden" }, { status: 403 });
 			const domain = normalizeDomain((body as { domain?: string }).domain || "");
 			if (!domain || !domain.includes(".")) return json({ error: "A valid domain is required" }, { status: 400 });
 			const now = new Date().toISOString();
@@ -536,20 +760,20 @@ export class AppAdminDO extends DurableObject<Env> {
 
 		const domainMatch = url.pathname.match(/^\/domains\/([^/]+)$/);
 		if (domainMatch && method === "PUT") {
-			if (actor.role !== "admin") return json({ error: "Forbidden" }, { status: 403 });
+			if (!isAdminRole(actor.role)) return json({ error: "Forbidden" }, { status: 403 });
 			const { status } = body as { status?: DomainStatus };
 			if (!["active", "disabled"].includes(status || "")) return json({ error: "Invalid status" }, { status: 400 });
 			this.ctx.storage.sql.exec("UPDATE domain_sources SET status = ?, updated_at = ? WHERE id = ?", status, new Date().toISOString(), domainMatch[1]);
 			return json({ ok: true });
 		}
 		if (domainMatch && method === "DELETE") {
-			if (actor.role !== "admin") return json({ error: "Forbidden" }, { status: 403 });
+			if (!isAdminRole(actor.role)) return json({ error: "Forbidden" }, { status: 403 });
 			this.ctx.storage.sql.exec("DELETE FROM domain_sources WHERE id = ?", domainMatch[1]);
 			return json({ ok: true });
 		}
 
 		if (url.pathname === "/cloudflare-config" && method === "GET") {
-			if (actor.role !== "admin") return json({ error: "Forbidden" }, { status: 403 });
+			if (!isAdminRole(actor.role)) return json({ error: "Forbidden" }, { status: 403 });
 			return json({
 				hasToken: !!this.getSetting("cloudflare_api_token"),
 				lastSyncAt: this.getSetting("cloudflare_last_sync_at") || null,
@@ -557,23 +781,23 @@ export class AppAdminDO extends DurableObject<Env> {
 			});
 		}
 		if (url.pathname === "/cloudflare-config" && method === "PUT") {
-			if (actor.role !== "admin") return json({ error: "Forbidden" }, { status: 403 });
+			if (!isAdminRole(actor.role)) return json({ error: "Forbidden" }, { status: 403 });
 			const { apiToken } = body as { apiToken?: string };
 			if (apiToken?.trim()) this.setSetting("cloudflare_api_token", apiToken.trim());
 			return json({ ok: true });
 		}
 		if (url.pathname === "/domains/sync" && method === "POST") {
-			if (actor.role !== "admin") return json({ error: "Forbidden" }, { status: 403 });
+			if (!isAdminRole(actor.role)) return json({ error: "Forbidden" }, { status: 403 });
 			return json(await this.syncCloudflareDomains());
 		}
 
 		if (url.pathname === "/mcp-keys" && method === "GET") {
-			if (actor.role !== "admin") return json({ error: "Forbidden" }, { status: 403 });
+			if (!isAdminRole(actor.role)) return json({ error: "Forbidden" }, { status: 403 });
 			const rows = [...this.ctx.storage.sql.exec("SELECT * FROM mcp_api_keys ORDER BY created_at DESC")] as unknown as ApiKeyRow[];
 			return json(rows.map(keyPublic));
 		}
 		if (url.pathname === "/mcp-keys" && method === "POST") {
-			if (actor.role !== "admin") return json({ error: "Forbidden" }, { status: 403 });
+			if (!isAdminRole(actor.role)) return json({ error: "Forbidden" }, { status: 403 });
 			const label = String((body as { label?: string }).label || "MCP key").trim();
 			const key = `mfi_${randomToken(32)}`;
 			const now = new Date().toISOString();
@@ -591,7 +815,7 @@ export class AppAdminDO extends DurableObject<Env> {
 		}
 		const keyStatusMatch = url.pathname.match(/^\/mcp-keys\/([^/]+)\/status$/);
 		if (keyStatusMatch && method === "POST") {
-			if (actor.role !== "admin") return json({ error: "Forbidden" }, { status: 403 });
+			if (!isAdminRole(actor.role)) return json({ error: "Forbidden" }, { status: 403 });
 			const { status } = body as { status?: KeyStatus };
 			if (!["active", "disabled"].includes(status || "")) return json({ error: "Invalid status" }, { status: 400 });
 			this.ctx.storage.sql.exec("UPDATE mcp_api_keys SET status = ? WHERE id = ?", status, keyStatusMatch[1]);
@@ -599,7 +823,7 @@ export class AppAdminDO extends DurableObject<Env> {
 		}
 		const keyMatch = url.pathname.match(/^\/mcp-keys\/([^/]+)$/);
 		if (keyMatch && method === "DELETE") {
-			if (actor.role !== "admin") return json({ error: "Forbidden" }, { status: 403 });
+			if (!isAdminRole(actor.role)) return json({ error: "Forbidden" }, { status: 403 });
 			this.ctx.storage.sql.exec("DELETE FROM mcp_api_keys WHERE id = ?", keyMatch[1]);
 			return json({ ok: true });
 		}

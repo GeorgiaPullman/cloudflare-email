@@ -9,6 +9,10 @@ import { AdminTabs } from "~/components/AdminTabs";
 import { useCreateMcpKey, useDeleteMcpKey, useMcpKeys, useUpdateMcpKeyStatus } from "~/queries/admin";
 import { useSession } from "~/queries/auth";
 
+function isAdminRole(role?: string) {
+	return role === "primary_admin" || role === "admin";
+}
+
 export default function AdminMcpKeysRoute() {
 	const toast = useKumoToastManager();
 	const { data: session, isLoading: isSessionLoading } = useSession();
@@ -20,7 +24,7 @@ export default function AdminMcpKeysRoute() {
 	const [createdKey, setCreatedKey] = useState<string | null>(null);
 
 	if (isSessionLoading) return <div className="flex justify-center py-20"><Loader size="lg" /></div>;
-	if (!session?.user || session.user.role !== "admin") return <Navigate to="/" replace />;
+	if (!session?.user || !isAdminRole(session.user.role)) return <Navigate to="/" replace />;
 
 	return (
 		<div className="mx-auto max-w-4xl px-4 py-6 md:px-8 space-y-6">

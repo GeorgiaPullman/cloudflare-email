@@ -80,7 +80,7 @@ export const requireAuth = createMiddleware<AuthContext>(async (c, next) => {
 });
 
 export async function requireAdmin(c: Context<AuthContext>, next: Next) {
-	if (c.var.user.role !== "admin") return c.json({ error: "Forbidden" }, 403);
+	if (!isAdminRole(c.var.user.role)) return c.json({ error: "Forbidden" }, 403);
 	await next();
 }
 
@@ -91,9 +91,12 @@ export function adminHeaders(user: AuthUser) {
 	};
 }
 
+export function isAdminRole(role: AuthUser["role"]) {
+	return role === "primary_admin" || role === "admin";
+}
+
 export function extractBearerToken(request: Request) {
 	const auth = request.headers.get("Authorization") || "";
 	if (auth.toLowerCase().startsWith("bearer ")) return auth.slice(7).trim();
 	return request.headers.get("X-API-Key") || "";
 }
-

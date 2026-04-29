@@ -11,6 +11,7 @@ import type {
 	Folder,
 	Mailbox,
 	McpApiKey,
+	UserMailboxAssignment,
 	UserRole,
 	UserStatus,
 } from "~/types";
@@ -121,12 +122,18 @@ const api = {
 
 	// Admin
 	listUsers: () => get<AuthUser[]>("/api/v1/admin/users"),
-	createUser: (username: string, role: UserRole) =>
-		post<{ user: AuthUser; password: string }>("/api/v1/admin/users", { username, role }),
+	createUser: (username: string, role: UserRole, mailboxEmails?: string[]) =>
+		post<{ user: AuthUser; password: string }>("/api/v1/admin/users", { username, role, mailboxEmails }),
 	updateUserStatus: (id: string, status: UserStatus) =>
 		post<{ user: AuthUser }>(`/api/v1/admin/users/${id}/status`, { status }),
+	updateUserRole: (id: string, role: UserRole) =>
+		post<{ user: AuthUser }>(`/api/v1/admin/users/${id}/role`, { role }),
 	resetUserPassword: (id: string) =>
 		post<{ user: AuthUser; password: string }>(`/api/v1/admin/users/${id}/reset-password`),
+	listUserMailboxes: (id: string) =>
+		get<{ user: AuthUser; mailboxes: UserMailboxAssignment[] }>(`/api/v1/admin/users/${id}/mailboxes`),
+	updateUserMailboxes: (id: string, mailboxEmails: string[]) =>
+		put<{ mailboxes: UserMailboxAssignment[] }>(`/api/v1/admin/users/${id}/mailboxes`, { mailboxEmails }),
 	listDomains: () => get<AdminDomain[]>("/api/v1/admin/domains"),
 	createDomain: (domain: string) => post<{ ok: boolean }>("/api/v1/admin/domains", { domain }),
 	updateDomain: (id: string, status: "active" | "disabled") =>

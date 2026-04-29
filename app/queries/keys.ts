@@ -29,6 +29,7 @@ export const queryKeys = {
 	},
 	admin: {
 		users: ["admin", "users"] as const,
+		userMailboxes: (userId: string) => ["admin", "users", userId, "mailboxes"] as const,
 		domains: ["admin", "domains"] as const,
 		cloudflare: ["admin", "cloudflare"] as const,
 		mcpKeys: ["admin", "mcp-keys"] as const,

@@ -28,7 +28,7 @@ export interface Mailbox {
 	settings?: MailboxSettings;
 }
 
-export type UserRole = "admin" | "employee";
+export type UserRole = "primary_admin" | "admin" | "employee";
 export type UserStatus = "active" | "disabled";
 
 export interface AuthUser {
@@ -39,6 +39,13 @@ export interface AuthUser {
 	createdAt?: string;
 	updatedAt?: string;
 	lastLoginAt?: string | null;
+}
+
+export interface UserMailboxAssignment {
+	email: string;
+	source: "manual" | "auto_username";
+	assigned: boolean;
+	exists: boolean;
 }
 
 export interface AppConfig {

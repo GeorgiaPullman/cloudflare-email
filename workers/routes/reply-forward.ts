@@ -6,6 +6,7 @@ import type { Context } from "hono";
 import { sendEmail } from "../email-sender";
 import { storeAttachments } from "../lib/attachments";
 import type { EmailFull } from "../lib/schemas";
+import { adminHeaders, getAdminStub } from "../lib/auth";
 import {
 	validateSender,
 	SenderValidationError,
@@ -21,8 +22,22 @@ import type { MailboxContext } from "../lib/mailbox";
 type AppContext = Context<MailboxContext>;
 type RateLimitStub = { checkSendRateLimit: () => Promise<string | null> };
 
+async function assertMailboxAccess(c: AppContext, mailboxId: string) {
+	if (c.var.user.role === "primary_admin" || c.var.user.role === "admin") return null;
+	const response = await getAdminStub(c.env).fetch("https://app/mailbox-access", {
+		method: "POST",
+		headers: adminHeaders(c.var.user),
+		body: JSON.stringify({ userId: c.var.user.id, mailboxEmail: mailboxId }),
+	});
+	if (!response.ok) return c.json({ error: "Forbidden" }, 403);
+	const payload = await response.json() as { allowed?: boolean };
+	return payload.allowed ? null : c.json({ error: "Forbidden" }, 403);
+}
+
 export async function handleReplyEmail(c: AppContext) {
 	const mailboxId = c.req.param("mailboxId") ?? "";
+	const denied = await assertMailboxAccess(c, mailboxId);
+	if (denied) return denied;
 	const id = c.req.param("id") ?? "";
 	const body = SendEmailRequestSchema.parse(await c.req.json());
 	const { to, cc, bcc, from, subject, html, text, attachments } = body;
@@ -114,6 +129,8 @@ export async function handleReplyEmail(c: AppContext) {
 
 export async function handleForwardEmail(c: AppContext) {
 	const mailboxId = c.req.param("mailboxId") ?? "";
+	const denied = await assertMailboxAccess(c, mailboxId);
+	if (denied) return denied;
 	const id = c.req.param("id") ?? "";
 	const body = SendEmailRequestSchema.parse(await c.req.json());
 	const { to, cc, bcc, from, subject, html, text, attachments } = body;

@@ -17,9 +17,12 @@ export function useAdminUsers() {
 export function useCreateAdminUser() {
 	const qc = useQueryClient();
 	return useMutation({
-		mutationFn: ({ username, role }: { username: string; role: UserRole }) =>
-			api.createUser(username, role),
-		onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.admin.users }),
+		mutationFn: ({ username, role, mailboxEmails }: { username: string; role: UserRole; mailboxEmails?: string[] }) =>
+			api.createUser(username, role, mailboxEmails),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: queryKeys.admin.users });
+			qc.invalidateQueries({ queryKey: queryKeys.mailboxes.all });
+		},
 	});
 }
 
@@ -32,9 +35,39 @@ export function useUpdateUserStatus() {
 	});
 }
 
+export function useUpdateUserRole() {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: ({ id, role }: { id: string; role: UserRole }) =>
+			api.updateUserRole(id, role),
+		onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.admin.users }),
+	});
+}
+
 export function useResetUserPassword() {
 	return useMutation({
 		mutationFn: (id: string) => api.resetUserPassword(id),
+	});
+}
+
+export function useUserMailboxes(userId: string | undefined) {
+	return useQuery({
+		queryKey: userId ? queryKeys.admin.userMailboxes(userId) : ["admin", "user-mailboxes", "_disabled"],
+		queryFn: () => api.listUserMailboxes(userId!),
+		enabled: !!userId,
+	});
+}
+
+export function useUpdateUserMailboxes() {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: ({ id, mailboxEmails }: { id: string; mailboxEmails: string[] }) =>
+			api.updateUserMailboxes(id, mailboxEmails),
+		onSuccess: (_data, { id }) => {
+			qc.invalidateQueries({ queryKey: queryKeys.admin.userMailboxes(id) });
+			qc.invalidateQueries({ queryKey: queryKeys.admin.users });
+			qc.invalidateQueries({ queryKey: queryKeys.mailboxes.all });
+		},
 	});
 }
 

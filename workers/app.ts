@@ -7,7 +7,7 @@ import { Hono } from "hono";
 import { createRequestHandler } from "react-router";
 import { app as apiApp, receiveEmail } from "./index";
 import { AppAdminDO } from "./admin";
-import { extractBearerToken, getAdminStub, getSessionId, resolveSession } from "./lib/auth";
+import { extractBearerToken, getAdminStub, parseCookies, resolveSession } from "./lib/auth";
 import { EmailMCP } from "./mcp";
 import type { Env } from "./types";
 
@@ -32,6 +32,25 @@ const requestHandler = createRequestHandler(
 
 // Main app that wraps the API and adds React Router fallback
 const app = new Hono<{ Bindings: Env }>();
+
+async function canAccessAgentMailbox(c: { env: Env; req: { raw: Request }; json: (data: unknown, status?: number) => Response }) {
+	const user = await resolveSession(c.env, parseCookies(c.req.raw.headers.get("Cookie") || undefined).mailflare_session || null);
+	if (!user) return { response: c.json({ error: "Unauthorized" }, 401) };
+	const url = new URL(c.req.raw.url);
+	const parts = url.pathname.split("/").filter(Boolean);
+	const namespace = parts[1];
+	const mailboxId = decodeURIComponent(parts[2] || "");
+	if (namespace !== "email-agent" || !mailboxId) return { response: c.json({ error: "Forbidden" }, 403) };
+	if (user.role === "primary_admin" || user.role === "admin") return { user };
+	const access = await getAdminStub(c.env).fetch("https://app/mailbox-access", {
+		method: "POST",
+		headers: { "Content-Type": "application/json", "X-Auth-User-Id": user.id },
+		body: JSON.stringify({ userId: user.id, mailboxEmail: mailboxId }),
+	});
+	if (!access.ok) return { response: c.json({ error: "Forbidden" }, 403) };
+	const payload = await access.json() as { allowed?: boolean };
+	return payload.allowed ? { user } : { response: c.json({ error: "Forbidden" }, 403) };
+}
 
 // MCP server endpoint — used by AI coding tools (ProtoAgent, Claude Code, Cursor, etc.)
 // Must be before API routes and React Router catch-all
@@ -62,8 +81,8 @@ app.route("/", apiApp);
 
 // Agent WebSocket routing - must be before React Router catch-all
 app.all("/agents/*", async (c) => {
-	const user = await resolveSession(c.env, getSessionId(c));
-	if (!user) return c.json({ error: "Unauthorized" }, 401);
+	const auth = await canAccessAgentMailbox(c);
+	if (auth.response) return auth.response;
 	const response = await routeAgentRequest(c.req.raw, c.env);
 	if (response) return response;
 	return c.text("Agent not found", 404);

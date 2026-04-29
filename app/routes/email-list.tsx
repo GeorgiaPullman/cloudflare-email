@@ -30,9 +30,14 @@ import {
 	useUpdateEmail,
 } from "~/queries/emails";
 import { useFolders } from "~/queries/folders";
+import { useSession } from "~/queries/auth";
 import { queryKeys } from "~/queries/keys";
 import { useUIStore } from "~/hooks/useUIStore";
 import type { Email } from "~/types";
+
+function isAdminRole(role?: string) {
+	return role === "primary_admin" || role === "admin";
+}
 
 const PAGE_SIZE = 25;
 
@@ -158,6 +163,8 @@ export default function EmailListRoute() {
 	const updateEmail = useUpdateEmail();
 	const markThreadRead = useMarkThreadRead();
 	const deleteEmail = useDeleteEmail();
+	const { data: session } = useSession();
+	const canDeleteEmails = isAdminRole(session?.user.role) || folder === Folders.DRAFT;
 
 	const params = useMemo(
 		() => ({
@@ -422,16 +429,18 @@ export default function EmailListRoute() {
 													aria-label={email.read ? "Mark unread" : "Mark read"}
 												/>
 											</Tooltip>
-											<Tooltip content="Delete" asChild>
-												<Button
-													variant="ghost"
-													shape="square"
-													size="sm"
-													icon={<TrashIcon size={14} />}
-													onClick={(e) => handleDelete(e, email.id)}
-													aria-label="Delete"
-												/>
-											</Tooltip>
+											{canDeleteEmails && (
+												<Tooltip content="Delete" asChild>
+													<Button
+														variant="ghost"
+														shape="square"
+														size="sm"
+														icon={<TrashIcon size={14} />}
+														onClick={(e) => handleDelete(e, email.id)}
+														aria-label="Delete"
+													/>
+												</Tooltip>
+											)}
 										</div>
 									</div>
 								);

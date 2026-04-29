@@ -12,6 +12,7 @@ import {
 	clearSessionCookie,
 	getAdminStub,
 	getSessionId,
+	isAdminRole,
 	requireAdmin,
 	requireAuth,
 	sessionCookie,
@@ -98,12 +99,67 @@ app.use("/api/v1/mailboxes/:mailboxId/*", requireMailbox);
 // -- Config ---------------------------------------------------------
 
 async function getConfig(env: Env, userId?: string) {
-	const headers = userId ? adminHeaders({ id: userId, username: "", role: "admin", status: "active" }) : { "Content-Type": "application/json" };
+	const headers = userId ? adminHeaders({ id: userId, username: "", role: "primary_admin", status: "active" }) : { "Content-Type": "application/json" };
 	const response = await getAdminStub(env).fetch("https://app/config", {
 		method: "GET",
 		headers,
 	});
 	return response.json() as Promise<AppConfigResponse>;
+}
+
+async function assertMailboxAccess(c: AppContext, mailboxId: string) {
+	if (isAdminRole(c.var.user.role)) return null;
+	const response = await getAdminStub(c.env).fetch("https://app/mailbox-access", {
+		method: "POST",
+		headers: adminHeaders(c.var.user),
+		body: JSON.stringify({ userId: c.var.user.id, mailboxEmail: mailboxId }),
+	});
+	if (!response.ok) return c.json({ error: "Forbidden" }, 403);
+	const payload = await response.json() as { allowed?: boolean };
+	return payload.allowed ? null : c.json({ error: "Forbidden" }, 403);
+}
+
+async function filterVisibleMailboxes(c: AppContext, mailboxEmails: string[]) {
+	if (isAdminRole(c.var.user.role)) return mailboxEmails.map((email) => email.toLowerCase());
+	const response = await getAdminStub(c.env).fetch("https://app/visible-mailboxes", {
+		method: "POST",
+		headers: adminHeaders(c.var.user),
+		body: JSON.stringify({ userId: c.var.user.id, mailboxEmails }),
+	});
+	if (!response.ok) return [];
+	const payload = await response.json() as { mailboxEmails?: string[] };
+	return payload.mailboxEmails ?? [];
+}
+
+async function notifyMailboxCreated(env: Env, user: MailboxContext["Variables"]["user"], mailboxEmail: string) {
+	await getAdminStub(env).fetch("https://app/mailbox-created", {
+		method: "POST",
+		headers: adminHeaders(user),
+		body: JSON.stringify({ mailboxEmail }),
+	});
+}
+
+async function notifyMailboxDeleted(env: Env, user: MailboxContext["Variables"]["user"], mailboxEmail: string) {
+	await getAdminStub(env).fetch("https://app/mailbox-deleted", {
+		method: "POST",
+		headers: adminHeaders(user),
+		body: JSON.stringify({ mailboxEmail }),
+	});
+}
+
+async function createMailboxRecord(env: Env, email: string, name: string, settings?: Record<string, unknown>) {
+	const defaultSettings = {
+		fromName: name,
+		forwarding: { enabled: false, email: "" },
+		signature: { enabled: false, text: "" },
+		autoReply: { enabled: false, subject: "", message: "" },
+		agentAutoDraft: { enabled: true },
+	};
+	const finalSettings = { ...defaultSettings, ...settings };
+	await env.BUCKET.put(`mailboxes/${email}.json`, JSON.stringify(finalSettings));
+	const stub = env.MAILBOX.get(env.MAILBOX.idFromName(email));
+	await stub.getFolders();
+	return finalSettings;
 }
 
 app.get("/api/v1/config", async (c) => {
@@ -194,12 +250,41 @@ app.get("/api/v1/admin/users", requireAuth, requireAdmin, async (c) => {
 });
 
 app.post("/api/v1/admin/users", requireAuth, requireAdmin, async (c) => {
+	const body = await c.req.json();
 	const response = await getAdminStub(c.env).fetch("https://app/users", {
 		method: "POST",
 		headers: adminHeaders(c.var.user),
-		body: JSON.stringify(await c.req.json()),
+		body: JSON.stringify(body),
 	});
-	return c.json(await response.json(), response.status as 201 | 400 | 403 | 409);
+	const payload = await response.json() as { user?: { id: string; username: string; role: string }; password?: string; error?: string };
+	if (!response.ok || !payload.user) return c.json(payload, response.status as 201 | 400 | 403 | 409);
+	const requestedMailboxes = Array.isArray((body as { mailboxEmails?: unknown }).mailboxEmails)
+		? ((body as { mailboxEmails?: string[] }).mailboxEmails ?? [])
+		: [];
+	if (payload.user.role === "employee" && requestedMailboxes.length > 0) {
+		const config = await getConfig(c.env, c.var.user.id);
+		const allowedDomains = new Set(config.availableDomains.map((domain) => domain.toLowerCase()));
+		const mailboxEmails: string[] = [];
+		for (const rawEmail of requestedMailboxes) {
+			const email = String(rawEmail || "").trim().toLowerCase();
+			const [prefix, domain] = email.split("@");
+			if (prefix !== payload.user.username || !allowedDomains.has(domain || "")) continue;
+			const key = `mailboxes/${email}.json`;
+			if (!(await c.env.BUCKET.head(key))) {
+				await createMailboxRecord(c.env, email, payload.user.username);
+				await notifyMailboxCreated(c.env, c.var.user, email);
+			}
+			mailboxEmails.push(email);
+		}
+		if (mailboxEmails.length > 0) {
+			await getAdminStub(c.env).fetch(`https://app/users/${payload.user.id}/mailboxes`, {
+				method: "PUT",
+				headers: adminHeaders(c.var.user),
+				body: JSON.stringify({ mailboxEmails }),
+			});
+		}
+	}
+	return c.json(payload, response.status as 201 | 400 | 403 | 409);
 });
 
 app.post("/api/v1/admin/users/:id/status", requireAuth, requireAdmin, async (c) => {
@@ -211,6 +296,15 @@ app.post("/api/v1/admin/users/:id/status", requireAuth, requireAdmin, async (c) 
 	return c.json(await response.json(), response.status as 200 | 400 | 403);
 });
 
+app.post("/api/v1/admin/users/:id/role", requireAuth, requireAdmin, async (c) => {
+	const response = await getAdminStub(c.env).fetch(`https://app/users/${c.req.param("id")}/role`, {
+		method: "POST",
+		headers: adminHeaders(c.var.user),
+		body: JSON.stringify(await c.req.json()),
+	});
+	return c.json(await response.json(), response.status as 200 | 400 | 403 | 404);
+});
+
 app.post("/api/v1/admin/users/:id/reset-password", requireAuth, requireAdmin, async (c) => {
 	const response = await getAdminStub(c.env).fetch(`https://app/users/${c.req.param("id")}/reset-password`, {
 		method: "POST",
@@ -218,6 +312,22 @@ app.post("/api/v1/admin/users/:id/reset-password", requireAuth, requireAdmin, as
 		body: JSON.stringify({}),
 	});
 	return c.json(await response.json(), response.status as 200 | 403 | 404);
+});
+
+app.get("/api/v1/admin/users/:id/mailboxes", requireAuth, requireAdmin, async (c) => {
+	const response = await getAdminStub(c.env).fetch(`https://app/users/${c.req.param("id")}/mailboxes`, {
+		headers: adminHeaders(c.var.user),
+	});
+	return c.json(await response.json(), response.status as 200 | 400 | 403 | 404);
+});
+
+app.put("/api/v1/admin/users/:id/mailboxes", requireAuth, requireAdmin, async (c) => {
+	const response = await getAdminStub(c.env).fetch(`https://app/users/${c.req.param("id")}/mailboxes`, {
+		method: "PUT",
+		headers: adminHeaders(c.var.user),
+		body: JSON.stringify(await c.req.json()),
+	});
+	return c.json(await response.json(), response.status as 200 | 400 | 403 | 404);
 });
 
 app.get("/api/v1/admin/domains", requireAuth, requireAdmin, async (c) => {
@@ -315,12 +425,20 @@ app.delete("/api/v1/admin/mcp-keys/:id", requireAuth, requireAdmin, async (c) =>
 
 app.get("/api/v1/mailboxes", async (c) => {
 	const allMailboxes = await listMailboxes(c.env.BUCKET);
-	return c.json(allMailboxes.map((m) => ({ ...m, name: m.id })));
+	const visible = new Set(await filterVisibleMailboxes(c, allMailboxes.map((m) => m.email)));
+	return c.json(allMailboxes
+		.filter((m) => visible.has(m.email.toLowerCase()))
+		.map((m) => ({ ...m, name: m.id })));
 });
 
 app.post("/api/v1/mailboxes", async (c) => {
+	if (!isAdminRole(c.var.user.role)) return c.json({ error: "Only administrators can create mailboxes" }, 403);
 	const { name, settings, email: rawEmail } = CreateMailboxBody.parse(await c.req.json());
 	const email = rawEmail.toLowerCase();
+	const emailLocalPart = email.split("@")[0] || "";
+	if (!/^[a-z0-9][a-z0-9._-]{0,62}$/.test(emailLocalPart)) {
+		return c.json({ error: "Mailbox prefix must match a valid username format" }, 400);
+	}
 	const config = await getConfig(c.env, c.var.user.id);
 	const allowedDomains = new Set(config.availableDomains.map((d) => d.toLowerCase()));
 	const emailDomain = email.split("@")[1] || "";
@@ -329,28 +447,22 @@ app.post("/api/v1/mailboxes", async (c) => {
 	}
 	const key = `mailboxes/${email}.json`;
 	if (await c.env.BUCKET.head(key)) return c.json({ error: "Mailbox already exists" }, 409);
-	const defaultSettings = {
-		fromName: name,
-		forwarding: { enabled: false, email: "" },
-		signature: { enabled: false, text: "" },
-		autoReply: { enabled: false, subject: "", message: "" },
-		agentAutoDraft: { enabled: true },
-	};
-	const finalSettings = { ...defaultSettings, ...settings };
-	await c.env.BUCKET.put(key, JSON.stringify(finalSettings));
-	const stub = c.env.MAILBOX.get(c.env.MAILBOX.idFromName(email));
-	await stub.getFolders();
+	const finalSettings = await createMailboxRecord(c.env, email, name, settings);
+	await notifyMailboxCreated(c.env, c.var.user, email);
 	return c.json({ id: email, email, name, settings: finalSettings }, 201);
 });
 
 app.get("/api/v1/mailboxes/:mailboxId", async (c) => {
 	const mailboxId = c.req.param("mailboxId")!;
+	const denied = await assertMailboxAccess(c, mailboxId);
+	if (denied) return denied;
 	const obj = await c.env.BUCKET.get(`mailboxes/${mailboxId}.json`);
 	if (!obj) return c.json({ error: "Not found" }, 404);
 	return c.json({ id: mailboxId, name: mailboxId, email: mailboxId, settings: await obj.json() });
 });
 
 app.put("/api/v1/mailboxes/:mailboxId", async (c) => {
+	if (!isAdminRole(c.var.user.role)) return c.json({ error: "Only administrators can update mailbox settings" }, 403);
 	const mailboxId = c.req.param("mailboxId")!;
 	const { settings } = (await c.req.json()) as { settings: Record<string, unknown> };
 	const key = `mailboxes/${mailboxId}.json`;
@@ -360,16 +472,20 @@ app.put("/api/v1/mailboxes/:mailboxId", async (c) => {
 });
 
 app.delete("/api/v1/mailboxes/:mailboxId", async (c) => {
+	if (!isAdminRole(c.var.user.role)) return c.json({ error: "Only administrators can delete mailboxes" }, 403);
 	const mailboxId = c.req.param("mailboxId")!;
 	const key = `mailboxes/${mailboxId}.json`;
 	if (!(await c.env.BUCKET.head(key))) return c.json({ error: "Not found" }, 404);
 	await c.env.BUCKET.delete(key); // TODO: also delete DO data and R2 attachment blobs
+	await notifyMailboxDeleted(c.env, c.var.user, mailboxId);
 	return c.body(null, 204);
 });
 
 // -- Emails ---------------------------------------------------------
 
 app.get("/api/v1/mailboxes/:mailboxId/emails", async (c: AppContext) => {
+	const denied = await assertMailboxAccess(c, c.req.param("mailboxId")!);
+	if (denied) return denied;
 	const folder = c.req.query("folder");
 	const thread_id = c.req.query("thread_id");
 	const threaded = boolQuery(c, "threaded");
@@ -394,6 +510,8 @@ app.get("/api/v1/mailboxes/:mailboxId/emails", async (c: AppContext) => {
 
 app.post("/api/v1/mailboxes/:mailboxId/emails", async (c: AppContext) => {
 	const mailboxId = c.req.param("mailboxId")!;
+	const denied = await assertMailboxAccess(c, mailboxId);
+	if (denied) return denied;
 	const body = SendEmailRequestSchema.parse(await c.req.json());
 	const { to, cc, bcc, from, subject, html, text, attachments, in_reply_to, references, thread_id } = body;
 
@@ -444,9 +562,16 @@ app.post("/api/v1/mailboxes/:mailboxId/emails", async (c: AppContext) => {
 
 app.post("/api/v1/mailboxes/:mailboxId/drafts", async (c: AppContext) => {
 	const mailboxId = c.req.param("mailboxId")!;
+	const denied = await assertMailboxAccess(c, mailboxId);
+	if (denied) return denied;
 	const { to, cc, bcc, subject, body, in_reply_to, thread_id, draft_id } = DraftBody.parse(await c.req.json());
 	const stub = c.var.mailboxStub;
-	if (draft_id) await stub.deleteEmail(draft_id); // not atomic — create-then-delete would be safer
+	if (draft_id) {
+		const draft = await stub.getEmail(draft_id) as { folder_id?: string } | null;
+		if (!draft) return c.json({ error: "Draft not found" }, 404);
+		if (draft.folder_id !== Folders.DRAFT) return c.json({ error: "Can only replace draft messages" }, 403);
+		await stub.deleteEmail(draft_id); // not atomic — create-then-delete would be safer
+	}
 	const messageId = crypto.randomUUID();
 	const now = new Date().toISOString();
 	await stub.createEmail(Folders.DRAFT, {
@@ -459,6 +584,8 @@ app.post("/api/v1/mailboxes/:mailboxId/drafts", async (c: AppContext) => {
 });
 
 app.get("/api/v1/mailboxes/:mailboxId/emails/:id", async (c: AppContext) => {
+	const denied = await assertMailboxAccess(c, c.req.param("mailboxId")!);
+	if (denied) return denied;
 	const email = await c.var.mailboxStub.getEmail(c.req.param("id")!);
 	if (!email) return c.json({ error: "Email not found" }, 404);
 	return new Response(JSON.stringify(email), {
@@ -467,13 +594,22 @@ app.get("/api/v1/mailboxes/:mailboxId/emails/:id", async (c: AppContext) => {
 });
 
 app.put("/api/v1/mailboxes/:mailboxId/emails/:id", async (c: AppContext) => {
+	const denied = await assertMailboxAccess(c, c.req.param("mailboxId")!);
+	if (denied) return denied;
 	const { read, starred } = (await c.req.json()) as { read?: boolean; starred?: boolean };
 	const email = await c.var.mailboxStub.updateEmail(c.req.param("id")!, { read, starred });
 	return email ? c.json(email) : c.json({ error: "Email not found" }, 404);
 });
 
 app.delete("/api/v1/mailboxes/:mailboxId/emails/:id", async (c: AppContext) => {
+	const denied = await assertMailboxAccess(c, c.req.param("mailboxId")!);
+	if (denied) return denied;
 	const id = c.req.param("id")!;
+	if (!isAdminRole(c.var.user.role)) {
+		const email = await c.var.mailboxStub.getEmail(id) as { folder_id?: string } | null;
+		if (!email) return c.json({ error: "Not found" }, 404);
+		if (email.folder_id !== Folders.DRAFT) return c.json({ error: "Employees can only discard drafts" }, 403);
+	}
 	const attachments = await c.var.mailboxStub.deleteEmail(id);
 	if (attachments === null) return c.json({ error: "Not found" }, 404);
 	if (attachments.length > 0) await c.env.BUCKET.delete(attachments.map((att: any) => `attachments/${id}/${att.id}/${att.filename}`));
@@ -481,6 +617,8 @@ app.delete("/api/v1/mailboxes/:mailboxId/emails/:id", async (c: AppContext) => {
 });
 
 app.post("/api/v1/mailboxes/:mailboxId/emails/:id/move", async (c: AppContext) => {
+	const denied = await assertMailboxAccess(c, c.req.param("mailboxId")!);
+	if (denied) return denied;
 	const { folderId } = (await c.req.json()) as { folderId: string };
 	const success = await c.var.mailboxStub.moveEmail(c.req.param("id")!, folderId);
 	return success ? c.json({ status: "moved" }) : c.json({ error: "Folder not found" }, 400);
@@ -489,10 +627,14 @@ app.post("/api/v1/mailboxes/:mailboxId/emails/:id/move", async (c: AppContext) =
 // -- Threads --------------------------------------------------------
 
 app.get("/api/v1/mailboxes/:mailboxId/threads/:threadId", async (c: AppContext) => {
+	const denied = await assertMailboxAccess(c, c.req.param("mailboxId")!);
+	if (denied) return denied;
 	return c.json(await (c.var.mailboxStub as any).getThreadEmails(c.req.param("threadId")!));
 });
 
 app.post("/api/v1/mailboxes/:mailboxId/threads/:threadId/read", async (c: AppContext) => {
+	const denied = await assertMailboxAccess(c, c.req.param("mailboxId")!);
+	if (denied) return denied;
 	await c.var.mailboxStub.markThreadRead(c.req.param("threadId")!);
 	return c.json({ status: "marked_read" });
 });
@@ -504,9 +646,16 @@ app.post("/api/v1/mailboxes/:mailboxId/emails/:id/forward", handleForwardEmail);
 
 // -- Folders --------------------------------------------------------
 
-app.get("/api/v1/mailboxes/:mailboxId/folders", async (c: AppContext) => c.json(await c.var.mailboxStub.getFolders()));
+app.get("/api/v1/mailboxes/:mailboxId/folders", async (c: AppContext) => {
+	const denied = await assertMailboxAccess(c, c.req.param("mailboxId")!);
+	if (denied) return denied;
+	return c.json(await c.var.mailboxStub.getFolders());
+});
 
 app.post("/api/v1/mailboxes/:mailboxId/folders", async (c: AppContext) => {
+	if (!isAdminRole(c.var.user.role)) return c.json({ error: "Only administrators can create folders" }, 403);
+	const denied = await assertMailboxAccess(c, c.req.param("mailboxId")!);
+	if (denied) return denied;
 	const { name } = (await c.req.json()) as { name: string };
 	const slug = slugify(name);
 	if (!slug) return c.json({ error: "Folder name must contain alphanumeric characters" }, 400);
@@ -515,12 +664,18 @@ app.post("/api/v1/mailboxes/:mailboxId/folders", async (c: AppContext) => {
 });
 
 app.put("/api/v1/mailboxes/:mailboxId/folders/:id", async (c: AppContext) => {
+	if (!isAdminRole(c.var.user.role)) return c.json({ error: "Only administrators can update folders" }, 403);
+	const denied = await assertMailboxAccess(c, c.req.param("mailboxId")!);
+	if (denied) return denied;
 	const { name } = (await c.req.json()) as { name: string };
 	const f = await c.var.mailboxStub.updateFolder(c.req.param("id")!, name);
 	return f ? c.json(f) : c.json({ error: "Folder not found" }, 404);
 });
 
 app.delete("/api/v1/mailboxes/:mailboxId/folders/:id", async (c: AppContext) => {
+	if (!isAdminRole(c.var.user.role)) return c.json({ error: "Only administrators can delete folders" }, 403);
+	const denied = await assertMailboxAccess(c, c.req.param("mailboxId")!);
+	if (denied) return denied;
 	const ok = await c.var.mailboxStub.deleteFolder(c.req.param("id")!);
 	return ok ? c.body(null, 204) : c.json({ error: "Folder not found or cannot be deleted" }, 400);
 });
@@ -528,6 +683,8 @@ app.delete("/api/v1/mailboxes/:mailboxId/folders/:id", async (c: AppContext) => 
 // -- Search ---------------------------------------------------------
 
 app.get("/api/v1/mailboxes/:mailboxId/search", async (c: AppContext) => {
+	const denied = await assertMailboxAccess(c, c.req.param("mailboxId")!);
+	if (denied) return denied;
 	const searchOpts: Record<string, unknown> = {
 		query: c.req.query("query") || "", folder: c.req.query("folder"), from: c.req.query("from"),
 		to: c.req.query("to"), subject: c.req.query("subject"), date_start: c.req.query("date_start"),
@@ -543,6 +700,8 @@ app.get("/api/v1/mailboxes/:mailboxId/search", async (c: AppContext) => {
 // -- Attachments ----------------------------------------------------
 
 app.get("/api/v1/mailboxes/:mailboxId/emails/:emailId/attachments/:attachmentId", async (c: AppContext) => {
+	const denied = await assertMailboxAccess(c, c.req.param("mailboxId")!);
+	if (denied) return denied;
 	const emailId = c.req.param("emailId")!;
 	const attachmentId = c.req.param("attachmentId")!;
 	const attachment = await c.var.mailboxStub.getAttachment(attachmentId);

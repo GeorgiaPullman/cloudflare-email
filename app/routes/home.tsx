@@ -26,6 +26,7 @@ import {
 	useMailboxes,
 } from "~/queries/mailboxes";
 import { queryKeys } from "~/queries/keys";
+import type { UserRole } from "~/types";
 
 export function meta() {
 	return [{ title: "Mailflare" }];
@@ -90,6 +91,10 @@ function AuthForm({ isInitialized }: { isInitialized: boolean }) {
 	);
 }
 
+function isAdminRole(role?: UserRole) {
+	return role === "primary_admin" || role === "admin";
+}
+
 export default function HomeRoute() {
 	const toastManager = useKumoToastManager();
 	const { data: configData, isLoading: isConfigLoading } = useQuery({
@@ -103,6 +108,7 @@ export default function HomeRoute() {
 	const logout = useLogout();
 
 	const domains = configData?.availableDomains ?? [];
+	const canManageMailboxes = isAdminRole(session?.user.role);
 
 	const [isCreateOpen, setIsCreateOpen] = useState(false);
 	const [newPrefix, setNewPrefix] = useState("");
@@ -177,14 +183,16 @@ export default function HomeRoute() {
 							</p>
 						</div>
 						<div className="flex items-center gap-2 self-start">
-							<Button
-								variant="primary"
-								icon={<PlusIcon size={16} />}
-								onClick={() => setIsCreateOpen(true)}
-								disabled={domains.length === 0}
-							>
-								New Mailbox
-							</Button>
+							{canManageMailboxes && (
+								<Button
+									variant="primary"
+									icon={<PlusIcon size={16} />}
+									onClick={() => setIsCreateOpen(true)}
+									disabled={domains.length === 0}
+								>
+									New Mailbox
+								</Button>
+							)}
 							<DropdownMenu>
 								<DropdownMenu.Trigger render={(props) => (
 									<Button
@@ -211,12 +219,12 @@ export default function HomeRoute() {
 						<p className="text-sm text-kumo-subtle mt-1">{domains.join(", ")}</p>
 					) : (
 						<p className="text-sm text-kumo-subtle mt-1">
-							{session.user.role === "admin"
+							{canManageMailboxes
 								? "No active domains yet. Add one in Domains before creating mailboxes."
 								: "No active domains yet. An administrator needs to add one before mailboxes can be created."}
 						</p>
 					)}
-					{session.user.role === "admin" && (
+					{canManageMailboxes && (
 						<div className="mt-4">
 							<AdminTabs />
 						</div>
@@ -244,19 +252,21 @@ export default function HomeRoute() {
 										{account.email}
 									</div>
 								</div>
-								<Button
-									variant="ghost"
-									size="sm"
-									shape="square"
-									icon={<TrashIcon size={16} />}
-									aria-label={`Delete mailbox ${account.email}`}
-									onClick={(e) => {
-										e.preventDefault();
-										e.stopPropagation();
-										setMailboxToDelete({ id: account.id, email: account.email });
-										setIsDeleteOpen(true);
-									}}
-								/>
+								{canManageMailboxes && (
+									<Button
+										variant="ghost"
+										size="sm"
+										shape="square"
+										icon={<TrashIcon size={16} />}
+										aria-label={`Delete mailbox ${account.email}`}
+										onClick={(e) => {
+											e.preventDefault();
+											e.stopPropagation();
+											setMailboxToDelete({ id: account.id, email: account.email });
+											setIsDeleteOpen(true);
+										}}
+									/>
+								)}
 							</RouterLink>
 						))}
 					</div>
@@ -270,9 +280,11 @@ export default function HomeRoute() {
 									? "Create a mailbox to start sending and receiving emails."
 									: "Add an active domain before creating mailboxes."}
 							</p>
-							<Button variant="primary" icon={<PlusIcon size={16} />} onClick={() => setIsCreateOpen(true)} disabled={domains.length === 0}>
-								Create Mailbox
-							</Button>
+							{canManageMailboxes && (
+								<Button variant="primary" icon={<PlusIcon size={16} />} onClick={() => setIsCreateOpen(true)} disabled={domains.length === 0}>
+									Create Mailbox
+								</Button>
+							)}
 						</div>
 					</div>
 				)}
@@ -282,7 +294,7 @@ export default function HomeRoute() {
 					<ol className="mt-3 space-y-3 text-sm text-kumo-subtle list-decimal pl-5">
 						<li>
 							先在{" "}
-							{session.user.role === "admin" ? (
+							{canManageMailboxes ? (
 								<RouterLink to="/admin/domains" className="font-medium text-kumo-link no-underline hover:text-kumo-link-hover hover:underline">
 									域名管理
 								</RouterLink>

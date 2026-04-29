@@ -6,8 +6,12 @@ import { Badge, Button, Input, Loader, useKumoToastManager } from "@cloudflare/k
 import { RobotIcon, ArrowCounterClockwiseIcon } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router";
-import { useChangePassword } from "~/queries/auth";
+import { useChangePassword, useSession } from "~/queries/auth";
 import { useMailbox, useUpdateMailbox } from "~/queries/mailboxes";
+
+function isAdminRole(role?: string) {
+	return role === "primary_admin" || role === "admin";
+}
 
 // Placeholder shown in the textarea when no custom prompt is set.
 // The authoritative default prompt lives in workers/agent/index.ts (DEFAULT_SYSTEM_PROMPT).
@@ -19,6 +23,7 @@ export default function SettingsRoute() {
 	const { data: mailbox } = useMailbox(mailboxId);
 	const updateMailboxMutation = useUpdateMailbox();
 	const changePassword = useChangePassword();
+	const { data: session } = useSession();
 
 	const [displayName, setDisplayName] = useState("");
 	const [agentAutoDraftEnabled, setAgentAutoDraftEnabled] = useState(true);
@@ -78,6 +83,16 @@ export default function SettingsRoute() {
 		return (
 			<div className="flex justify-center py-20">
 				<Loader size="lg" />
+			</div>
+		);
+	}
+
+	if (!isAdminRole(session?.user.role)) {
+		return (
+			<div className="max-w-2xl px-4 py-4 md:px-8 md:py-6">
+				<div className="rounded-lg border border-kumo-line bg-kumo-base p-5 text-sm text-kumo-subtle">
+					Only administrators can change mailbox settings.
+				</div>
 			</div>
 		);
 	}

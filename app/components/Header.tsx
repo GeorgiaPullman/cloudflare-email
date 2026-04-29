@@ -7,6 +7,11 @@ import { GearSixIcon, ListIcon, MagnifyingGlassIcon, RobotIcon, XIcon } from "@p
 import { type KeyboardEvent, useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { useUIStore } from "~/hooks/useUIStore";
+import { useSession } from "~/queries/auth";
+
+function isAdminRole(role?: string) {
+	return role === "primary_admin" || role === "admin";
+}
 
 export default function Header() {
 	const [searchQuery, setSearchQuery] = useState("");
@@ -16,6 +21,7 @@ export default function Header() {
 	const location = useLocation();
 	const [searchParams] = useSearchParams();
 	const { toggleSidebar, toggleAgentPanel, isAgentPanelOpen } = useUIStore();
+	const { data: session } = useSession();
 
 	// Sync search input with URL query param so it stays populated
 	const urlQuery = searchParams.get("q") || "";
@@ -134,21 +140,23 @@ export default function Header() {
 						className="hidden lg:inline-flex"
 					/>
 				</Tooltip>
-				<Tooltip content="Settings" side="bottom" asChild>
-					<Button
-						variant={isSettingsActive ? "secondary" : "ghost"}
-						shape="square"
-						icon={<GearSixIcon size={20} />}
-						onClick={() =>
-							navigate(
-								isSettingsActive
-									? `/mailbox/${mailboxId}/emails/inbox`
-									: `/mailbox/${mailboxId}/settings`,
-							)
-						}
-						aria-label="Settings"
-					/>
-				</Tooltip>
+				{isAdminRole(session?.user.role) && (
+					<Tooltip content="Settings" side="bottom" asChild>
+						<Button
+							variant={isSettingsActive ? "secondary" : "ghost"}
+							shape="square"
+							icon={<GearSixIcon size={20} />}
+							onClick={() =>
+								navigate(
+									isSettingsActive
+										? `/mailbox/${mailboxId}/emails/inbox`
+										: `/mailbox/${mailboxId}/settings`,
+								)
+							}
+							aria-label="Settings"
+						/>
+					</Tooltip>
+				)}
 			</div>
 		</header>
 	);

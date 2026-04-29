@@ -19,7 +19,12 @@ import { NavLink, useNavigate, useParams } from "react-router";
 import { Folders, SYSTEM_FOLDER_IDS } from "shared/folders";
 import { useCreateFolder, useFolders } from "~/queries/folders";
 import { useMailbox } from "~/queries/mailboxes";
+import { useSession } from "~/queries/auth";
 import { useUIStore } from "~/hooks/useUIStore";
+
+function isAdminRole(role?: string) {
+	return role === "primary_admin" || role === "admin";
+}
 
 const FOLDER_ICONS: Record<string, React.ReactNode> = {
 	[Folders.INBOX]: <TrayIcon size={18} weight="regular" />,
@@ -80,6 +85,7 @@ export default function Sidebar() {
 	const createFolderMutation = useCreateFolder();
 	const { startCompose, closeSidebar } = useUIStore();
 	const { data: currentMailbox } = useMailbox(mailboxId);
+	const { data: session } = useSession();
 	const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
 	const [newFolderName, setNewFolderName] = useState("");
 
@@ -119,6 +125,7 @@ export default function Sidebar() {
 		// Close mobile sidebar on navigation
 		closeSidebar();
 	};
+	const canManageFolders = isAdminRole(session?.user.role);
 
 	return (
 		<aside className="h-full w-64 bg-kumo-recessed flex flex-col shrink-0 border-r border-kumo-line">
@@ -177,16 +184,18 @@ export default function Sidebar() {
 							<span className="text-xs uppercase tracking-wider font-semibold text-kumo-subtle">
 								Folders
 							</span>
-							<Tooltip content="New folder" asChild>
-								<Button
-									variant="ghost"
-									shape="square"
-									size="sm"
-									icon={<PlusIcon size={16} />}
-									onClick={() => setIsCreateFolderOpen(true)}
-									aria-label="Create new folder"
-								/>
-							</Tooltip>
+							{canManageFolders && (
+								<Tooltip content="New folder" asChild>
+									<Button
+										variant="ghost"
+										shape="square"
+										size="sm"
+										icon={<PlusIcon size={16} />}
+										onClick={() => setIsCreateFolderOpen(true)}
+										aria-label="Create new folder"
+									/>
+								</Tooltip>
+							)}
 						</div>
 						{customFolders.map((folder) => (
 							<FolderLink
@@ -202,7 +211,7 @@ export default function Sidebar() {
 				)}
 
 				{/* Add folder button when no custom folders */}
-				{customFolders.length === 0 && (
+				{customFolders.length === 0 && canManageFolders && (
 					<div className="pt-5">
 						<div className="flex items-center justify-between px-3 mb-1.5">
 							<span className="text-xs uppercase tracking-wider font-semibold text-kumo-subtle">

@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
-export type UserRole = "admin" | "employee";
+export type UserRole = "primary_admin" | "admin" | "employee";
 export type UserStatus = "active" | "disabled";
 
 export interface AuthUser {
