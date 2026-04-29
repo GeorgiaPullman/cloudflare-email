@@ -545,7 +545,9 @@ export default function HomeRoute() {
 					</div>
 				)}
 
-				<StorageUsagePanel enabled={canManageMailboxes} />
+				<div className="mt-8">
+					<StorageUsagePanel enabled={canManageMailboxes} />
+				</div>
 
 				<div className="mt-6 rounded-xl border border-kumo-line bg-kumo-base p-5">
 					<h2 className="text-sm font-semibold text-kumo-default">首次使用配置说明</h2>
