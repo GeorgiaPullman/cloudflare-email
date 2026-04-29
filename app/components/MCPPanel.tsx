@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
-import { Button, Tooltip } from "@cloudflare/kumo";
+import { Button, Tooltip, useKumoToastManager } from "@cloudflare/kumo";
 import {
 	CheckIcon,
 	CopyIcon,
@@ -11,6 +11,11 @@ import {
 } from "@phosphor-icons/react";
 import { useState } from "react";
 import { Link } from "react-router";
+import { useSession } from "~/queries/auth";
+
+function isAdminRole(role?: string) {
+	return role === "primary_admin" || role === "admin";
+}
 
 function CopyButton({ text }: { text: string }) {
 	const [copied, setCopied] = useState(false);
@@ -59,6 +64,9 @@ const TOOLS = [
 ];
 
 export default function MCPPanel() {
+	const toast = useKumoToastManager();
+	const { data: session } = useSession();
+	const canManageMcpKeys = isAdminRole(session?.user.role);
 	const baseUrl =
 		typeof window !== "undefined" ? window.location.origin : "https://your-app.workers.dev";
 	const mcpUrl = `${baseUrl}/mcp`;
@@ -93,9 +101,19 @@ export default function MCPPanel() {
 						language. Use an MCP API key from the admin panel as a
 						Bearer token when connecting.
 					</p>
-					<Link to="/admin/mcp-keys" className="text-xs text-kumo-brand">
-						Manage MCP keys
-					</Link>
+					{canManageMcpKeys ? (
+						<Link to="/admin/mcp-keys" className="text-xs text-kumo-brand">
+							Manage MCP keys
+						</Link>
+					) : (
+						<button
+							type="button"
+							className="cursor-pointer bg-transparent p-0 text-left text-xs text-kumo-brand"
+							onClick={() => toast.add({ title: "请联系管理员为你创建 MCP API Key" })}
+						>
+							Manage MCP keys
+						</button>
+					)}
 				</div>
 
 				{/* MCP URL */}
