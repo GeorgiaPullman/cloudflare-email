@@ -40,6 +40,8 @@ const EMAIL_SENDING_GUIDE_IMAGE = "/email-send.png";
 const API_TOKEN_GUIDE_IMAGE = "/api-token.png";
 const MAILBOX_DOMAIN_FILTER_KEY = "mailflare:mailbox-domain-filter";
 const DEFAULT_CLEANUP_MONTHS = 6;
+const ONE_GB = 1024 * 1024 * 1024;
+const TEN_GB = 10 * ONE_GB;
 
 function MoreActionsIcon() {
 	return (
@@ -122,7 +124,15 @@ function formatBytes(bytes: number) {
 }
 
 function quotaLabel(bytes: number) {
-	return bytes >= 10 * 1024 * 1024 * 1024 ? "10GB Paid" : "1GB Free";
+	return bytes >= TEN_GB ? "10 GB Paid" : "1 GB Free";
+}
+
+function quotaSelectValue(bytes: number) {
+	return bytes >= TEN_GB ? "10gb" : "1gb";
+}
+
+function quotaBytesFromSelect(value: string) {
+	return value === "10gb" ? TEN_GB : ONE_GB;
 }
 
 function StorageUsagePanel({
@@ -143,7 +153,7 @@ function StorageUsagePanel({
 	const handleQuotaChange = async (value: string | null) => {
 		if (!value) return;
 		try {
-			await updateQuota.mutateAsync(Number(value));
+			await updateQuota.mutateAsync(quotaBytesFromSelect(value));
 			toast.add({ title: "Storage quota baseline updated" });
 		} catch (error) {
 			toast.add({ title: error instanceof Error ? error.message : "Failed to update storage quota", variant: "error" });
@@ -183,11 +193,11 @@ function StorageUsagePanel({
 				<div className="w-full md:w-48">
 					<span className="mb-1.5 block text-xs font-medium text-kumo-subtle">Quota baseline</span>
 					<Select
-						value={String(usage?.quotaBytes ?? 1024 * 1024 * 1024)}
+						value={quotaSelectValue(usage?.quotaBytes ?? ONE_GB)}
 						onValueChange={handleQuotaChange}
 					>
-						<Select.Option value={String(1024 * 1024 * 1024)}>1GB Free</Select.Option>
-						<Select.Option value={String(10 * 1024 * 1024 * 1024)}>10GB Paid</Select.Option>
+						<Select.Option value="1gb">1 GB Free</Select.Option>
+						<Select.Option value="10gb">10 GB Paid</Select.Option>
 					</Select>
 				</div>
 			</div>
@@ -432,8 +442,6 @@ export default function HomeRoute() {
 					)}
 				</div>
 
-				<StorageUsagePanel enabled={canManageMailboxes} />
-
 				{mailboxes.length > 0 && (
 					<div className="mb-8 flex flex-wrap gap-x-8 gap-y-3">
 						{domainTabs.map((domain) => {
@@ -536,6 +544,8 @@ export default function HomeRoute() {
 						</div>
 					</div>
 				)}
+
+				<StorageUsagePanel enabled={canManageMailboxes} />
 
 				<div className="mt-6 rounded-xl border border-kumo-line bg-kumo-base p-5">
 					<h2 className="text-sm font-semibold text-kumo-default">首次使用配置说明</h2>
